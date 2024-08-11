@@ -258,21 +258,18 @@ def task_prompt(
       "context" : retriever | format_docs
     }
   
-  if (task == "qa"):
-    variables["question"] = RunnablePassthrough()
-    prompt = qa_prompt()
-    
-  else if (task == "cons"):
+  if (task == "cons"):
     prompt = cons_prompt()
   
   else if (task == "sc"):
     prompt = sc_prompt()
     
   else:
-    print("Task not recognized. Defaulting to question-answering. Task should be one of the following: \n\nqa (for question-answering), \ncons (to outline consequences), or \nsc (for scenario creation).")
     variables["question"] = RunnablePassthrough()
     prompt = qa_prompt()
     
+    if (task != "qa"):
+      print("Task not recognized. Defaulting to question-answering. Task should be one of the following: \n\nqa (for question-answering), \ncons (to outline consequences), or \nsc (for scenario creation).")
 
   task_prompt = (
     variables
