@@ -1,29 +1,9 @@
 """
-CHANGE AS NEEDED
-"""
-# enter Hugging Face auth code
-hfAuth = "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" #read only
-hfAuth = "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" #fine-grained
-
-# enter model that generator is based on (as seen on Hugging Face)
-llmModel = 'meta-llama/Meta-Llama-3-8B'
-
-# enter model that embeds and decodes documents in database (as seen on Hugging Face)
-embeddingModel = "mixedbread-ai/mxbai-embed-large-v1"
-
-# enter location of vector database
-dbLoc = "./ChromaDB"
-
-# enter the location of the questions you wish to ask
-questionsLoc = "/home/gtl1500/CyberAdvisory/llama2Script/RAGQA.xlsx"
-
-
-
-
-
-"""
 IMPORTS
 """
+# VARIABLES
+from HfAuth import hfAuth
+
 # FULL SCRIPT
 import torch
 
@@ -55,6 +35,28 @@ from langchain_core.prompts import PromptTemplate
 
 # OUTPUT PROCESSING FUNCTIONS
 ## no imports
+
+
+
+
+
+"""
+CHANGE AS NEEDED
+"""
+# enter Hugging Face auth code
+hfAuth = hfAuth # old version of this code had my actual auth token here - that token has been expired and the new token is hidden using .gitignore
+
+# enter model that generator is based on (as seen on Hugging Face)
+llmModel = 'meta-llama/Meta-Llama-3-8B'
+
+# enter model that embeds and decodes documents in database (as seen on Hugging Face)
+embeddingModel = "mixedbread-ai/mxbai-embed-large-v1"
+
+# enter location of vector database
+dbLoc = "./ChromaDB"
+
+# enter the location of the questions you wish to ask
+questionsLoc = "/home/gtl1500/CyberAdvisory/llama2Script/RAGQA.xlsx"
 
 
 
