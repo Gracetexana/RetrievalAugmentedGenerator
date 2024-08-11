@@ -66,16 +66,16 @@ if __name__ == "__main__":
     main()
 
 def main():
-  llm = create_llm(llmModel)
+  llm = create_llm(llmModel) # initialize llm
   
-  dbEmbeddings = db_embeddings(embeddingModel)
+  dbEmbeddings = db_embeddings(embeddingModel) # embedding function corresponding to transformer model
   
-  db, translator = access_chromaDB(
+  db, translator = access_chromaDB( # access persistent chromaDB and appropriate translator
     dbLoc, 
     dbEmbeddings
   )
   
-  retriever = create_retriever(
+  retriever = create_retriever( # initialize retriever
     llm, 
     db, 
     translator
@@ -83,7 +83,7 @@ def main():
   
   question = "Does the vulnerability described in CVE-2024-0011 allow for the execution of arbitrary code on the affected system?"
   
-  chat_history = rag(
+  chat_history = rag( # rag prints output and stores input and output in chat history
     question,
     llm,
     retriever
@@ -261,7 +261,7 @@ def task_prompt(
   if (task == "cons"):
     prompt = cons_prompt()
   
-  else if (task == "sc"):
+  elif (task == "sc"):
     prompt = sc_prompt()
     
   else:
