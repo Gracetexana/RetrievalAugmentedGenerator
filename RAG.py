@@ -55,9 +55,6 @@ embeddingModel = "mixedbread-ai/mxbai-embed-large-v1"
 # enter location of vector database
 dbLoc = "./ChromaDB"
 
-# enter the location of the questions you wish to ask
-questionsLoc = "/home/gtl1500/CyberAdvisory/llama2Script/RAGQA.xlsx"
-
 
 
 
