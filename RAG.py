@@ -12,8 +12,7 @@ from langchain_core.runnables import RunnableLambda # also in GENERATORS
 
 # LLM
 import transformers
-from transformers import AutoTokenizer
-from langchain_community.llms.huggingface_pipeline import HuggingFacePipeline
+from langchain_huggingface import HuggingFacePipeline
 
 # RETRIEVER
 ## create_retriever()
@@ -140,28 +139,28 @@ def rag(
     list
         A condensed chat history.
   """
-  if (len(chat_history) > 0):
+  if (len(chat_history) > 0): # if a chat history is provided
     standalone_question = standalone_question_generator(llm, chat_history).invoke(question)
-    question = standalone_question
+    question = standalone_question # edit the question so that it is understandable on its own - no ambiguous pronouns, etc
     
-  task_prompt = task_prompt(
+  task_prompt = task_prompt( # prompt to describe what response the llm should generate
     llm, 
     retriever,
     audience, 
-    task
+    task # qa, cons, or sc
   ).invoke(question)
   
-  rag = (
+  rag = ( # RAG will generate output and prompt will be removed so only RAG response is printed
     llm
     | RunnableLambda(get_helpful_answer)
   )
   
-  llm_response = rag.invoke(task_prompt)
+  llm_response = rag.invoke(task_prompt) # RAG response generated based on tailored prompt
   print(llm_response)
   
   chat_input = "Input: " + task_prompt
   chat_output = "Output: " + llm_response
-  chat_history = [chat_input, chat_output]
+  chat_history = [chat_input, chat_output] # prompt and response saved to chat_history
   
   return chat_history
 
@@ -172,35 +171,37 @@ def rag(
 # LLM
 def create_llm(llmModel):
   """
-  creates the generator portion of the RAG (retrieval augmented generator) based on selected model from HuggingFace
-  generator uses query + documents from retriever to generate appropriate response
+  Initizalizes llm specified by llmModel from HuggingFace.
+  
+  Parameters
+  ----------
+  llmModel: String
+      The string through which the model can be accessed from HuggingFace.
+      
+  Returns
+  -------
+  HuggingFacePipeline
+      The llm as tailored below.
   """
-  bnb_config = transformers.BitsAndBytesConfig(
+  bnb_config = transformers.BitsAndBytesConfig( # quantization
     load_in_4bit=True,
     bnb_4bit_quant_type='nf4',
     bnb_4bit_use_double_quant=True,
     bnb_4bit_compute_dtype=torch.bfloat16
   )
   
-  tokenizer = AutoTokenizer.from_pretrained(llmModel)
-  
-  llmPipe = transformers.pipeline(
-    "text-generation", 
-    model=llmModel, 
-    model_kwargs={
+  llm = HuggingFacePipeline.from_model_id(
+    model_id = llmModel,
+    task = "text-generation",
+    model_kwargs = {
+      "temperature": 0.1, # how random outputs are; 0.1 is not very random
+      "quantization_config": bnb_config,
+      "token": hfAuth
+    },
+    pipeline_kwargs = {
+      "device_map": "auto", # automatically allocates resources between GPUs (and CPUs if necessary)
       "torch_dtype": torch.bfloat16
-    }, 
-    device_map="auto",
-    eos_token_id = [
-      tokenizer.eos_token_id, 
-      tokenizer.convert_tokens_to_ids("<|eot_id|>")
-    ],
-    token = hfAuth
-  )
-  
-  llm = HuggingFacePipeline(
-      pipeline = generatorPipe,
-      model_kwargs = {"temperature": 0.1}
+    }
   )
   
   return llm
@@ -299,6 +300,7 @@ def task_prompt(
   task_prompt = (
     variables
     | prompt
+  )
     
   return task_prompt
     
