@@ -115,29 +115,29 @@ def rag(
   audience = "a general audience"
 ):
   """
-    Print llm output.
-    
-    Parameters
-    ----------
-    question: string
-        The string used to retrieve relevant documents (does not strictly have to be a question).
-        If question-answering, the question that is answered.
-    llm: HuggingFacePipeline
-        The llm that will be generating outputs based on prompts.
-    retriever: SelfQueryingRetriever
-        A retriever that can use the provided question to filter documents using metadata and then search through the filtered documents for the information referenced in the question.
-    chat_history: list
-        A condensed version of the conversation; whole chat history will not be remembered.
-    task: String
-        Either "qa," "cons," or "sc" for question-answering, consequence analysis, and scenario creation, respectively.
-        Determines which task the RAG will perform.
-    audience: String
-        Can change the tone of the output.
-        
-    Returns
-    -------
-    list
-        A condensed chat history.
+  Print llm output.
+  
+  Parameters
+  ----------
+  question: string
+      The string used to retrieve relevant documents (does not strictly have to be a question).
+      If question-answering, the question that is answered.
+  llm: HuggingFacePipeline
+      The llm that will be generating outputs based on prompts.
+  retriever: SelfQueryingRetriever
+      A retriever that can use the provided question to filter documents using metadata and then search through the filtered documents for the information referenced in the question.
+  chat_history: list
+      A condensed version of the conversation; whole chat history will not be remembered.
+  task: String
+      Either "qa," "cons," or "sc" for question-answering, consequence analysis, and scenario creation, respectively.
+      Determines which task the RAG will perform.
+  audience: String
+      Can change the tone of the output.
+      
+  Returns
+  -------
+  list
+      A condensed chat history.
   """
   if (len(chat_history) > 0): # if a chat history is provided
     standalone_question = standalone_question_generator(llm, chat_history).invoke(question)
@@ -210,6 +210,26 @@ def create_llm(llmModel):
 
 # RETRIEVER
 def create_retriever(llm, db, translator):
+  """
+  Creates the document retriever. Documents can be filtered by metadata. Documents are represented by vectors, and the vectors that are the closest match to the question asked to the RAG are retrieved.
+    
+  Parameters
+  ----------
+  llm: HuggingFacePipeline
+      The llm used to generate portions of the RAG. 
+      Within the retriever, the llm detects a filter statement within the question and produces an appropriate json query to filter the documents.
+  db: Chroma database 
+      The vector database that holds the vector representations of documents that the RAG can use as context.
+      Other vector databases could work, but I do not have the code for it yet.
+  translator: ChromaTranslator
+      Translates the json query created by the llm to use in filtering the documents.
+      Must match the vector database.
+      
+  Returns
+  -------
+  SelfQueryRetriever
+      Can retrieve relevant documents when invoked.
+  """
   retriever = SelfQueryRetriever(
     query_constructor = json_query_generator(llm),
     vectorstore = db,
