@@ -30,6 +30,8 @@
 # Your job script goes below this line.
 #
 
+spack load cuda/sgx3wdz
+
 source /home/gtl1500/miniconda3/etc/profile.d/conda.sh
 conda activate personalRAG
 
