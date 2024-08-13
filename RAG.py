@@ -1,8 +1,11 @@
+import sys
+sys.path.append("..") # allows import of files in parent directory (I need this for HFAuth right below because I am running this file from the SLURM file, RAG.sh)
+
 """
 IMPORTS
 """
 # VARIABLES
-from HfAuth import hfAuth
+from PersonalTokens import HFAuth
 
 # FULL SCRIPT
 import torch
@@ -19,9 +22,9 @@ from langchain_huggingface import HuggingFacePipeline
 from langchain.retrievers.self_query.base import SelfQueryRetriever
 ## access_chromaDB()
 from langchain_chroma import Chroma
-from langchain.retrievers.self_query.chroma import ChromaTranslator
+from langchain_community.query_constructors.chroma import ChromaTranslator
 ## db_embeddings()
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 
 # GENERATORS
 ## standalone_question_generator()
@@ -43,7 +46,7 @@ from langchain_core.prompts import PromptTemplate
 CHANGE AS NEEDED
 """
 # enter Hugging Face auth code
-hfAuth = hfAuth # old version of this code had my actual auth token here - that token has been expired and the new token is hidden using .gitignore
+hfAuth = HFAuth # old version of this code had my actual auth token here - that token has been expired and the new token is hidden using .gitignore
 
 # enter model that generator is based on (as seen on Hugging Face)
 llmModel = 'meta-llama/Meta-Llama-3-8B'
@@ -51,8 +54,8 @@ llmModel = 'meta-llama/Meta-Llama-3-8B'
 # enter model that embeds and decodes documents in database (as seen on Hugging Face)
 embeddingModel = "mixedbread-ai/mxbai-embed-large-v1"
 
-# enter location of vector database
-dbLoc = "./ChromaDB"
+# enter location of vector database (for me, it is relation to my SLURM file RAG.sh)
+dbLoc = "../ChromaDB"
 
 
 
@@ -61,9 +64,6 @@ dbLoc = "./ChromaDB"
 """
 SCRIPT
 """
-if __name__ == "__main__":
-    main()
-
 def main():
   llm = create_llm(llmModel) # initialize llm
   
@@ -96,7 +96,7 @@ def main():
     retriever,
     chat_history
   )
-  
+
 
 
 
@@ -139,30 +139,39 @@ def rag(
   list
       A condensed chat history.
   """
-  if (len(chat_history) > 0): # if a chat history is provided
-    standalone_question = standalone_question_generator(llm, chat_history).invoke(question)
-    question = standalone_question # edit the question so that it is understandable on its own - no ambiguous pronouns, etc
-    
-  task_prompt = task_prompt( # prompt to describe what response the llm should generate
-    llm, 
-    retriever,
-    audience, 
-    task # qa, cons, or sc
-  ).invoke(question)
+  standalone_question = standalone_question_generator(llm, chat_history) # standalone_question_generator() is under GENERATORS
   
-  rag = ( # RAG will generate output and prompt will be removed so only RAG response is printed
-    llm
-    | RunnableLambda(get_helpful_answer)
+  context = format_docs(retriever.invoke(standalone_question)) # the documents that the LLM will use to answer the questoin
+  
+  if (task == "cons"):
+    prompt = cons_prompt() # cons_prompt() is under PROMPTS
+    
+  elif (task == "sc"):
+    prompt = sc_prompt() # sc_prompt() is under PROMPTS
+  
+  else:
+    if (task != "qa"):
+      print("""
+        Task not recognized, defaulting to question-answering. Task must be one of the following:
+        
+        qa (question-answering): answers the given question
+        cons (consequences): outlines consequences of the specified cyberattack
+        sc (scenario creator): describes a practice attack scenario centered around the specified cyberattack
+      """)
+      
+    prompt = qa_prompt() # qa_prompts() is under PROMPTS
+    prompt.partial(question = standalone_question) 
+  
+  generator_input = prompt.format(
+    audience = audience,
+    context = context
   )
   
-  llm_response = rag.invoke(task_prompt) # RAG response generated based on tailored prompt
-  print(llm_response)
+  generator_output = llm.invoke(generator_input)
   
-  chat_input = "Input: " + task_prompt
-  chat_output = "Output: " + llm_response
-  chat_history = [chat_input, chat_output] # prompt and response saved to chat_history
+  print(generator_output)
   
-  return chat_history
+  return [generator_input, generator_output]
 
 
 
@@ -194,13 +203,13 @@ def create_llm(llmModel):
     model_id = llmModel,
     task = "text-generation",
     model_kwargs = {
+      "device_map": "auto", # automatically allocates resources between GPUs (and CPUs if necessary)
       "temperature": 0.1, # how random outputs are; 0.1 is not very random
-      "quantization_config": bnb_config,
-      "token": hfAuth
+      "do_sample": True,
+      "quantization_config": bnb_config # more efficient computing, less memory
     },
     pipeline_kwargs = {
-      "device_map": "auto", # automatically allocates resources between GPUs (and CPUs if necessary)
-      "torch_dtype": torch.bfloat16
+      "token": hfAuth # login to HuggingFace for access if necessary (necessary for llama models)
     }
   )
   
@@ -242,8 +251,25 @@ def create_retriever(llm, db, translator):
   
 
 def access_chromaDB(dbLoc, dbEmbeddings):
+  """
+  Access a Chroma Vector Database.
+    
+  Parameters
+  ----------
+  dbLoc: String
+      The path to the database. Relative or absolute.
+  dbEmbeddings: HuggingFaceEmbeddings
+      Translates documents from numbers that computers understand back into words that humans understand.
+      
+  Returns
+  -------
+  db
+      The Chroma DB.
+  translator 
+      The ChromaTranslator() (used in json_query_generator > create_retriever()) that translates a filter statement from JSON format into an appropriate filter statement for Chroma.
+  """
   db = Chroma(
-    persist_directory = dbLoc,
+    persist_directory = dbLoc, 
     embedding_function = dbEmbeddings
   )
   
@@ -253,12 +279,24 @@ def access_chromaDB(dbLoc, dbEmbeddings):
 
 
 def db_embeddings(embeddingModel):
+  """
+  Returns the embeddings used to translate documents in the form of vectors back to documents that contain words. Must match the embeddings that were used to create the database (see createDatabase.py).
+  
+  Parameters
+  ----------
+  embeddingModel: String
+      Used to ID the different embedding models on HuggingFace.
+  
+  Returns
+  -------
+  dbEmbeddings
+      The function that can translate words to vectors and vectors to words.
+  """
   dbEmbeddings = HuggingFaceEmbeddings(
-      model_name = embeddingModel,
-      model_kwargs = {
-          "device": "cuda"
-      }
+      model_name = embeddingModel
   )
+  
+  return dbEmbeddings
   
   
   
@@ -266,10 +304,29 @@ def db_embeddings(embeddingModel):
   
 # GENERATORS
 def standalone_question_generator(llm, chat_history):
+  """
+  When invoked, uses that chat history and the question to create a standalone question - no ambiguous pronouns, etc.
+  
+  Parameters
+  ----------
+  llm: HuggingFacePipeline
+      The LLM/AI used to generate the standalone question.
+  chat_history: list
+      The previous prompt (including the question/standalone question) used to generate an answer and the answer itself.
+  
+  Returns
+  -------
+  standalone_question_generator
+      A chain that will generate a standalone question when invoked with a question.
+  """
+  if (len(chat_history) == 0): # if there is no chat history...
+    return RunnablePassthrough() # passes along the original question
+  
   standalone_question_generator = (
-    {"chat_history" : chat_history, "question" : RunnablePassthrough()}
-    | standalone_question_prompt()
-    | RunnableLambda(get_standalone_question)
+    {"chat_history" : chat_history, "question" : RunnablePassthrough()} # chat history and the original question...
+    | standalone_question_prompt() # are inserted into the prompt...
+    | llm # which prompts the llm to create a standalone question...
+    | RunnableLambda(get_standalone_question) # and trim off the prompt
   )
   
   return standalone_question_generator
@@ -277,58 +334,57 @@ def standalone_question_generator(llm, chat_history):
 
 
 def json_query_generator(llm):
-  output_parser = StructuredQueryOutputParser.from_components()
+  """
+  When invoked, turns a question into a JSON structured request.
+  
+  Parameters
+  ----------
+  llm: HuggingFacePipeline
+      The LLM/AI used to generate the structured request
+  
+  Returns
+  -------
+  json_query_constructor
+      A chain that will generate a structured request when invoked with a question.
+  """
+  output_parser = StructuredQueryOutputParser.from_components() # the llm will return a String that looks like JSON - this will identify the query and the filter from the String
   
   json_query_generator = (
-    query_constructor_prompt()
-    | llm 
-    | RunnableLambda(get_final) 
-    | output_parser
+    query_constructor_prompt() # see query_constructor_prompt() under PROMPTS
+    | llm # the llm is prompted to create a JSON string structured as requested...
+    | RunnableLambda(get_final) # the prompt is trimmed off...
+    | output_parser # and the JSON string is parsed to determine the query and filter
   )
   
   return json_query_generator
-  
-  
-  
+    
+
+
 
 
 # PROMPTS
-def task_prompt(
-  llm, 
-  retriever,
-  audience, 
-  task
-):
-  variables = {
-      "audience" : audience,
-      "context" : retriever | format_docs
-    }
-  
-  if (task == "cons"):
-    prompt = cons_prompt()
-  
-  elif (task == "sc"):
-    prompt = sc_prompt()
-    
-  else:
-    variables["question"] = RunnablePassthrough()
-    prompt = qa_prompt()
-    
-    if (task != "qa"):
-      print("Task not recognized. Defaulting to question-answering. Task should be one of the following: \n\nqa (for question-answering), \ncons (to outline consequences), or \nsc (for scenario creation).")
-
-  task_prompt = (
-    variables
-    | prompt
-  )
-    
-  return task_prompt
-    
-
-
 def qa_prompt():
+  """
+  Prompt used for question-answering.
+  Content of prompt: "Use the following pieces of context to answer the question at the end. If you don't know the answer, just say that you don't know, don't try to make up an answer. Tailor your response as if speaking to {audience}.
+    
+  {context}
+    
+  Question: {question}
+  Helpful Answer: "
+  
+  Returns
+  -------
+  PromptTemplate(...)
+      A prompt template with content as shown above in which audience, context, and question are filled in at a later step.
+  """
   prompt_template = """
-    Use the following pieces of context to answer the question at the end. If you don't know the answer, just say that you don't know, don't try to make up an answer. Tailor your response as if speaking to {audience}.\n\n{context}\n\nQuestion: {question}\nHelpful Answer: 
+  Use the following pieces of context to answer the question at the end. If you don't know the answer, just say that you don't know, don't try to make up an answer. Tailor your response as if speaking to {audience}.
+    
+  {context}
+    
+  Question: {question}
+  Helpful Answer: 
   """
   
   return PromptTemplate(
@@ -339,8 +395,25 @@ def qa_prompt():
   
   
 def cons_prompt():
+  """
+  Prompt used for outlining consequences of a specific cyberattack.
+  Content of prompt: "Start with a one sentence synopsis of the following context. For cybersecurity within the power industry, describe the ramifications of an attack as outlined in the context being ignored. Be specific about how these ramifications come about. Tailor your response as if speaking to {audience}.
+    
+  {context}
+    
+  Helpful Answer: "
+  
+  Returns
+  -------
+  PromptTemplate(...)
+      A prompt template with content as shown above in which audience and context are filled in at a later step.
+  """
   prompt_template = """
-    Start with a one sentence synopsis of the following context. For cybersecurity within the power industry, describe the ramifications of an attack as outlined in the context being ignored. Be specific about how these ramifications come about. Tailor your response as if speaking to {audience}.\n\n{context}\n\nHelpful Answer: 
+  Start with a one sentence synopsis of the following context. For cybersecurity within the power industry, describe the ramifications of an attack as outlined in the context being ignored. Be specific about how these ramifications come about. Tailor your response as if speaking to {audience}.
+    
+  {context}
+    
+  Helpful Answer: 
   """
   
   return PromptTemplate(
@@ -351,8 +424,25 @@ def cons_prompt():
 
 
 def sc_prompt():
+  """
+  Prompt used for creating practice attack scenarios centered around a specific cyberattack.
+  Content of prompt: "Use the following pieces of context to describe a potential attack that could be faced within the power industry. Be specific in who the attacker is and what they are doing so that the security team can discuss an appropriate response. Tailor your response as if speaking to {audience}.
+    
+  {context}
+  
+  Helpful Answer: "
+  
+  Returns
+  -------
+  PromptTemplate(...)
+      A prompt template with content as shown above in which audience and context are filled in at a later step.
+  """
   prompt_template = """
-    Use the following pieces of context to describe a potential attack that could be faced within the power industry. Be specific in who the attacker is and what they are doing so that the security team can discuss an appropriate response. Tailor your response as if speaking to {audience}.\n\n{context}\n\nHelpful Answer: 
+  Use the following pieces of context to describe a potential attack that could be faced within the power industry. Be specific in who the attacker is and what they are doing so that the security team can discuss an appropriate response. Tailor your response as if speaking to {audience}.
+    
+  {context}
+  
+  Helpful Answer: 
   """
   
   return PromptTemplate(
@@ -363,6 +453,21 @@ def sc_prompt():
   
   
 def standalone_question_prompt():
+  """
+  Prompt used for turning an ambiguous question into a standalone question using chat history.
+  Content of prompt: "Given the following conversation and a follow up question, rephrase the follow up question to be a standalone question, in its original language.
+  
+  Chat History:
+  {chat_history}
+  
+  Follow Up Input: {question}
+  Standalone question: "
+  
+  Returns
+  -------
+  PromptTemplate(...)
+      A prompt template with content as shown above in which chat_history and question are filled in at a later step.
+  """
   prompt_template = """
   Given the following conversation and a follow up question, rephrase the follow up question to be a standalone question, in its original language.
   
@@ -370,7 +475,7 @@ def standalone_question_prompt():
   {chat_history}
   
   Follow Up Input: {question}
-  Standalone question:
+  Standalone question: 
   """
   
   return PromptTemplate(
@@ -381,6 +486,37 @@ def standalone_question_prompt():
 
 
 def query_constructor_example(i, question, query, filter_statement):
+  """
+  A helper function to create examples to include in the query_constructor_prompt().
+  
+  Parameters
+  ----------
+  i: int
+      Should start at 1 and increase for every example provided.
+  question: String
+      An example question that could be asked of the RAG.
+  query: String
+      Words that WOULD be found in the filtered documents that could be used to answer the question.
+  filter_statment: String
+      A logical and comparative statement that describes a filter found within the question. If there is no filter, this should be NO_FILTER.
+  
+  Returns
+  -------
+  A String with the following format: "
+  
+    << Example {i}. >>
+    User Query:
+    {question}
+    
+    Structured Request:
+    ```json
+    {{
+        "query": "{query}",
+        "filter": "{filter_statement}"
+    }}
+    ```
+  "
+  """
   example = f"""
     
     << Example {i}. >>
@@ -389,10 +525,10 @@ def query_constructor_example(i, question, query, filter_statement):
     
     Structured Request:
     ```json
-    {
+    {{
         "query": "{query}",
         "filter": "{filter_statement}"
-    }
+    }}
     ```
   """
   return example
@@ -400,7 +536,53 @@ def query_constructor_example(i, question, query, filter_statement):
    
    
 def query_constructor_prompt():
-
+  """
+  Prompt for turning a question into a structured request to be used for the SelfQueryingRetriever(), which can filter documents and THEN find relevant info. In the prompt detailed below, query_content, data_source, and examples are described by variables in the function.
+  Content of prompt: "Your goal is to structure the user's query to match the request schema provided below.
+    
+    << Structured Request Schema >>
+    When responding use a markdown code snippet with a JSON object formatted in the following schema:
+    
+    {query_format}
+    
+    The query string should contain only text that is expected to match the contents of documents. Any conditions in the filter should not be mentioned in the query as well.
+    
+    A logical condition statement is composed of one or more comparison and logical operation statements.
+    
+    A comparison statement takes the form: `comp(attr, val)`:
+    - `comp` ($eq | $ne | $gt | $gte | $lt | $lte): comparator
+    - `attr` (string):  name of attribute to apply the comparison to
+    - `val` (string): is the comparison value
+    
+    A logical operation statement takes the form `op(statement1, statement2, ...)`:
+    - `op` (and | or | not): logical operator
+    - `statement1`, `statement2`, ... (comparison statements or logical operation statements): one or more statements to apply the operation to
+    
+    Make sure that you only use the comparators and logical operators listed above and no others.
+    Make sure that filters only refer to attributes that exist in the data source.
+    Make sure that filters only use the attributed names with its function names if there are functions applied on them.
+    Make sure that filters only use format `YYYY-MM-DD` when handling date data typed values.
+    Make sure that filters take into account the descriptions of attributes and only make comparisons that are feasible given the type of data being stored.
+    Make sure that filters are only used as needed. If there are no filters that should be applied return "NO_FILTER" for the filter value.
+    
+    << Data Source >>
+    {data_source}
+      
+    
+    {examples}
+    
+    
+    << Final >>
+    User Query:
+    {{question}}
+    
+    Structured Request:"
+    
+  Returns
+  -------
+  PromptTemplate(...)
+      A prompt template with content as shown above in which question is filled in at a later step.
+  """
   query_format = """
     ```json
     {
@@ -409,7 +591,7 @@ def query_constructor_prompt():
     }
     ```
   """
-  data_source : """
+  data_source = """
     ```json
     {
         "content": "Cybersecurity vulnerabilities",
@@ -425,12 +607,12 @@ def query_constructor_prompt():
   
   examples = query_constructor_example(
     i = 1, 
-    user_query = "Does CVE-2024-0008 affect multiple versions of the software?",
+    question = "Does CVE-2024-0008 affect multiple versions of the software?",
     query = "versions",
     filter_statement = "eq(\\\"cveId\\\", \\\"CVE-2024-0008\\\")"
   ) + query_constructor_example(
     i = 2, 
-    user_query = "In CVE-2024-0015, is the vulnerability due to improper input validation in the DreamService.java file?",
+    question = "In CVE-2024-0015, is the vulnerability due to improper input validation in the DreamService.java file?",
     query = "description",
     filter_statement = "eq(\\\"cveId\\\", \\\"CVE-2024-0015\\\")"
   )
@@ -488,7 +670,19 @@ def query_constructor_prompt():
 
 # OUTPUT PROCESSING FUNCTIONS
 def format_docs(docs):
-    return "\n\n".join(doc.page_content for doc in docs)
+  """
+  Returns a String of document page contents separated by two new lines.
+  
+  Parameters
+  ----------
+  docs: list
+      A list of LangChain documents.
+  
+  Returns
+  -------
+  A String of only the page contents of those documents - no metadata.
+  """
+  return "\n\n".join(doc.page_content for doc in docs)
 
 
 
@@ -496,9 +690,30 @@ def snip(
   output, # llm output from which to snip
   starting_characters, # a string that describes the sequence of characters to start the snip
   include_start = False, # should starting characters be included?
-  ending_characters = null, # a string that describes the sequence of characters to end the snip
+  ending_characters = None, # a string that describes the sequence of characters to end the snip
   include_end = False # should the ending characters be included?
 ):
+  """
+  Extracts the desired pieces of an LLM/AI's output.
+  
+  Parameters
+  ----------
+  output: String
+      The output of an LLM/AI.
+  starting_characters: String
+      The first few characters to look for to define the starting point of the extracted text. Should typically be the end of the prompt provided to the LLM/AI.
+  include_start: boolean, default False
+      Whether or not to include the start_characters in the extraction.
+  ending_characters: String, default None
+      The last few characters to look for to define the ending point of the extracted text. Extraction will go to the end of the output if no ending_characters are provided.
+  include_end: boolean, default False
+      Whether or not to include the end_characters in the extraction.
+  
+  Returns
+  -------
+  output[starting_index:ending_index]
+      The desired snippet of the output.
+  """
   starting_index = output.find( # find the beginning of your excerpt
     value = starting_characters
   )
@@ -513,7 +728,7 @@ def snip(
   if (not include_start): # if not including starting characters
     starting_index = after_starting_characters # set starting index to end of starting_characters sequence
   
-  if (ending_characters != null): # if ending_characters are specified
+  if (ending_characters != None): # if ending_characters are specified
     ending_index = output.find( # find them
       value = ending_characters, 
       start = after_starting_characters
@@ -530,15 +745,28 @@ def snip(
 
 
 def get_standalone_question(output):
+  """
+  Returns
+  -------
+  snip(...)
+      Extraction of text starting at "Standalone Question:" (not inclusive), ending at "?" (inclusive). See snip() above.
+  """
   return snip(
     output = output,
     starting_characters = "Standalone Question:",
     ending_characters = "?",
     include_end = True
+  )
 
 
 
 def get_helpful_answer(output):
+  """
+  Returns
+  -------
+  snip(...)
+      Extraction of text starting at "Helpful Answer:" (not inclusive), ending at "Final Answer:" (not inclusive). See snip() above.
+  """
   return snip(
     output = output, 
     starting_characters = "Helpful Answer:",
@@ -548,6 +776,12 @@ def get_helpful_answer(output):
 
 
 def get_final(output):
+  """
+  Returns
+  -------
+  snip(...)
+      Extraction of text starting at "<< Final >>" (not inclusive), ending at end of the original text. See snip() above.
+  """
   return snip(
     output = output,
     starting_characters = "<< Final >>"
@@ -556,6 +790,12 @@ def get_final(output):
   
   
 def get_json_query(output):
+  """
+  Returns
+  -------
+  snip(...)
+      Extraction of text starting at "{" (inclusive), ending at "}" (inclusive). See snip() above.
+  """
   return snip(
     output = output,
     starting_characters = "{",
@@ -563,3 +803,11 @@ def get_json_query(output):
     ending_characters = "}",
     include_end = True
   )
+
+
+
+
+
+# RUN
+if __name__ == "__main__":
+    main()

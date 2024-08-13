@@ -15,7 +15,7 @@ from langchain_chroma import Chroma
 
 
 # MODIFIABLE VARIABLES
-path = "./Documents/"
+path = "../Documents/" # location relative to my SLURM file, DB.sh
 embedding_model = "mixedbread-ai/mxbai-embed-large-v1"
 
 
@@ -61,7 +61,5 @@ embeddings = HuggingFaceEmbeddings(
 db = Chroma.from_documents(
   documents, 
   embeddings,
-  persist_directory = "./ChromaDB"
+  persist_directory = "../ChromaDB" # location relative to my SLURM file, DB.sh
 )
-
-print(db.get())
