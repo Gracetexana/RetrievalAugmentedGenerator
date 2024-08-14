@@ -208,10 +208,10 @@ def create_llm(llmModel):
       "device_map": "auto", # automatically allocates resources between GPUs (and CPUs if necessary)
       "temperature": 0.1, # how random outputs are; 0.1 is not very random
       "do_sample": True,
-      "quantization_config": bnb_config, # more efficient computing, less memory
-      "max_new_tokens" : 1000
+      "quantization_config": bnb_config # more efficient computing, less memory
     },
     pipeline_kwargs = {
+      "max_new_tokens" : 1000,
       "token": hfAuth # login to HuggingFace for access if necessary (necessary for llama models)
     }
   )
