@@ -141,7 +141,7 @@ def rag(
   """
   standalone_question = standalone_question_generator(llm, chat_history) # standalone_question_generator() is under GENERATORS
   
-  context = format_docs(retriever.invoke(standalone_question)) # the documents that the LLM will use to answer the questoin
+  context = format_docs(retriever.invoke(standalone_question)) # the documents that the LLM will use to answer the question
   
   if (task == "cons"):
     prompt = cons_prompt() # cons_prompt() is under PROMPTS
@@ -510,14 +510,14 @@ def query_constructor_example(i, question, query, filter_statement):
     
     Structured Request:
     ```json
-    {{
+    {{{{
         "query": "{query}",
         "filter": "{filter_statement}"
-    }}
+    }}}}
     ```
   "
   """
-  example = f"""
+  example = (f"""
     
     << Example {i}. >>
     User Query:
@@ -525,12 +525,12 @@ def query_constructor_example(i, question, query, filter_statement):
     
     Structured Request:
     ```json
-    {{
+    {{{{
         "query": "{query}",
         "filter": "{filter_statement}"
-    }}
+    }}}}
     ```
-  """
+  """)
   return example
    
    
@@ -585,23 +585,23 @@ def query_constructor_prompt():
   """
   query_format = """
     ```json
-    {
+    {{
         "query": string \ text string to compare to document contents
         "filter": string \ logical condition statement for filtering documents
-    }
+    }}
     ```
   """
   data_source = """
     ```json
-    {
+    {{
         "content": "Cybersecurity vulnerabilities",
-        "attributes": {
-          "cveId": {
+        "attributes": {{
+          "cveId": {{
               "description": "A unique alphanumeric identifier for the vulnerability. Format: CVE-YYYY-NNNN",
               "type": "string"
-          }
-        }
-    }
+          }}
+        }}
+    }}
     ```
   """
   
@@ -617,7 +617,7 @@ def query_constructor_prompt():
     filter_statement = "eq(\\\"cveId\\\", \\\"CVE-2024-0015\\\")"
   )
   
-  prompt_template = f"""
+  prompt_template = (f"""
     Your goal is to structure the user's query to match the request schema provided below.
     
     << Structured Request Schema >>
@@ -657,7 +657,7 @@ def query_constructor_prompt():
     {{question}}
     
     Structured Request:
-  """
+  """)
   
   return PromptTemplate(
     input_variables = ["question"],
