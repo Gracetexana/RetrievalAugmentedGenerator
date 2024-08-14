@@ -139,15 +139,17 @@ def rag(
   list
       A condensed chat history.
   """
-  standalone_question = standalone_question_generator(llm, chat_history) # standalone_question_generator() is under GENERATORS
+  standalone_question = standalone_question_generator(llm, chat_history).invoke(question) # standalone_question_generator() is under GENERATORS
+  
+  print(f"{standalone_question=}")
   
   context = format_docs(retriever.invoke(standalone_question)) # the documents that the LLM will use to answer the question
   
   if (task == "cons"):
-    prompt = cons_prompt() # cons_prompt() is under PROMPTS
+    partial_prompt = cons_prompt() # cons_prompt() is under PROMPTS
     
   elif (task == "sc"):
-    prompt = sc_prompt() # sc_prompt() is under PROMPTS
+    partial_prompt = sc_prompt() # sc_prompt() is under PROMPTS
   
   else:
     if (task != "qa"):
@@ -160,9 +162,9 @@ def rag(
       """)
       
     prompt = qa_prompt() # qa_prompts() is under PROMPTS
-    prompt.partial(question = standalone_question) 
+    partial_prompt = prompt.partial(question = standalone_question) 
   
-  generator_input = prompt.format(
+  generator_input = partial_prompt.format(
     audience = audience,
     context = context
   )
@@ -206,7 +208,8 @@ def create_llm(llmModel):
       "device_map": "auto", # automatically allocates resources between GPUs (and CPUs if necessary)
       "temperature": 0.1, # how random outputs are; 0.1 is not very random
       "do_sample": True,
-      "quantization_config": bnb_config # more efficient computing, less memory
+      "quantization_config": bnb_config, # more efficient computing, less memory
+      "max_new_tokens" : 1000
     },
     pipeline_kwargs = {
       "token": hfAuth # login to HuggingFace for access if necessary (necessary for llama models)
@@ -319,15 +322,18 @@ def standalone_question_generator(llm, chat_history):
   standalone_question_generator
       A chain that will generate a standalone question when invoked with a question.
   """
-  if (len(chat_history) == 0): # if there is no chat history...
-    return RunnablePassthrough() # passes along the original question
-  
-  standalone_question_generator = (
-    {"chat_history" : chat_history, "question" : RunnablePassthrough()} # chat history and the original question...
-    | standalone_question_prompt() # are inserted into the prompt...
-    | llm # which prompts the llm to create a standalone question...
-    | RunnableLambda(get_standalone_question) # and trim off the prompt
-  )
+  if (len(chat_history) > 0): # if there is no chat history...
+    standalone_question_generator = (
+      {"chat_history" : chat_history, "question" : RunnablePassthrough()} # chat history and the original question...
+      | standalone_question_prompt() # are inserted into the prompt...
+      | llm # which prompts the llm to create a standalone question...
+      | RunnableLambda(get_standalone_question) # and trim off the prompt
+    )
+    
+  else:
+    standalone_question_generator = (
+      RunnablePassthrough()
+    )
   
   return standalone_question_generator
 
@@ -363,6 +369,16 @@ def json_query_generator(llm):
 
 
 # PROMPTS
+def pass_along_prompt():
+  prompt_template = "{text}"
+  
+  return PromptTemplate(
+    input_variables = ["text"],
+    template = prompt_template
+  )
+  
+  
+  
 def qa_prompt():
   """
   Prompt used for question-answering.
@@ -654,13 +670,13 @@ def query_constructor_prompt():
     
     << Final >>
     User Query:
-    {{question}}
+    {{query}}
     
     Structured Request:
   """)
   
   return PromptTemplate(
-    input_variables = ["question"],
+    input_variables = ["query"],
     template = prompt_template
   )
 
@@ -715,7 +731,7 @@ def snip(
       The desired snippet of the output.
   """
   starting_index = output.find( # find the beginning of your excerpt
-    value = starting_characters
+    starting_characters
   )
   
   ending_index = -1 # unless specified, snip will go to end of output
@@ -730,8 +746,8 @@ def snip(
   
   if (ending_characters != None): # if ending_characters are specified
     ending_index = output.find( # find them
-      value = ending_characters, 
-      start = after_starting_characters
+      ending_characters, 
+      after_starting_characters
     )
     
   if (ending_index == -1): # if ending_characters can't be found or weren't specified
@@ -803,6 +819,15 @@ def get_json_query(output):
     ending_characters = "}",
     include_end = True
   )
+
+
+
+
+
+# TROUBLESHOOTING
+def let_me_see(text):
+  print(text)
+  return text
 
 
 
