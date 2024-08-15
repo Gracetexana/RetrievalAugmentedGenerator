@@ -15,7 +15,7 @@ from langchain_core.runnables import RunnableLambda # also in GENERATORS
 from langchain_core.prompts.chat import MessagesPlaceholder
 
 # LLM
-import transformers
+from transformers import BitsAndBytesConfig, AutoModelForCausalLM, AutoTokenizer, pipeline
 from langchain_huggingface import HuggingFacePipeline
 
 # RETRIEVER
@@ -83,19 +83,24 @@ def main():
   
   question = "Does the vulnerability described in CVE-2024-0011 allow for the execution of arbitrary code on the affected system?"
   
-  chat_history = rag( # rag prints output and stores input and output in chat history
+  rag(
     question,
     llm,
     retriever
   )
   
-  question = "Anything else to add?"
-  
-  chat_history = rag( # testing chat history
+  rag(
     question,
     llm,
     retriever,
-    chat_history
+    task = "sc"
+  )
+
+  rag(
+    question,
+    llm,
+    retriever,
+    task = "cons"
   )
 
 
@@ -140,15 +145,25 @@ def rag(
   list
       A chat history.
   """
-  standalone_question = standalone_question_generator(llm, chat_history).invoke(question) # standalone_question_generator() is under GENERATORS
+  standalone_question = question
+
+  if (chat_history):
+    standalone_question = standalone_question_generator(llm).invoke( # standalone_question_generator() is under GENERATORS
+      {
+        "chat_history": chat_history,
+        "question": question
+      }
+    )
   
   context = format_docs(retriever.invoke(standalone_question)) # the documents that the LLM will use to answer the question
   
   if (task == "cons"):
     partial_prompt = cons_prompt() # cons_prompt() is under PROMPTS
+    printTask = "Consequences: "
     
   elif (task == "sc"):
     partial_prompt = sc_prompt() # sc_prompt() is under PROMPTS
+    printTask = "Scenario Creator: "
   
   else:
     if (task != "qa"):
@@ -161,21 +176,26 @@ def rag(
       """)
       
     prompt = qa_prompt() # qa_prompts() is under PROMPTS
-    partial_prompt = prompt.partial(question = standalone_question) 
+    printTask = "Question Answering: "
+    partial_prompt = prompt.partial(
+      question = standalone_question
+    ) 
   
   generator_input = partial_prompt.format(
     audience = audience,
     context = context
   )
 
-  chat_history.append(("input", generator_input))
+  print(printTask + question)
+
+  chat_history.append(("system", generator_input))
   
   generator_output = (
     llm
     | RunnableLambda(get_helpful_answer)
   ).invoke(generator_input)
 
-  chat_history.append(("output", generator_output))
+  chat_history.append(("ai", generator_output))
   
   print(generator_output)
 
@@ -200,27 +220,39 @@ def create_llm(llmModel):
   HuggingFacePipeline
       The llm as tailored below.
   """
-  bnb_config = transformers.BitsAndBytesConfig( # quantization
+  bnb_config = BitsAndBytesConfig( # quantization
     load_in_4bit=True,
     bnb_4bit_quant_type='nf4',
     bnb_4bit_use_double_quant=True,
     bnb_4bit_compute_dtype=torch.bfloat16
   )
+
+  model = AutoModelForCausalLM.from_pretrained(
+    llmModel,
+    temperature = 0.1, # how random outputs are; 0.1 is not very random
+    do_sample = True,
+    device_map = "auto", # automatically allocates resources between GPUs (and CPUs if necessary)
+    quantization_config = bnb_config, # quantization: more efficient computing, less memory
+    token = hfAuth # login to HuggingFace for access if necessary (necessary for llama models)
+  )
+
+  tokenizer = AutoTokenizer.from_pretrained(
+    llmModel,
+    padding_side = "right",
+    token = hfAuth # login to HuggingFace for access if necessary (necessary for llama models)
+  )
+
+  pipe = pipeline(
+    "text-generation",
+    model = model,
+    tokenizer = tokenizer,
+    max_new_tokens = 1000,
+    repetition_penalty = 1.2, # prevents some repetition in model responses
+    token = hfAuth # login to HuggingFace for access if necessary (necessary for llama models)
+  )
   
-  llm = HuggingFacePipeline.from_model_id(
-    model_id = llmModel,
-    task = "text-generation",
-    model_kwargs = {
-      "device_map": "auto", # automatically allocates resources between GPUs (and CPUs if necessary)
-      "temperature": 0.1, # how random outputs are; 0.1 is not very random
-      "do_sample": True,
-      "quantization_config": bnb_config # more efficient computing, less memory
-    },
-    pipeline_kwargs = {
-      "max_new_tokens" : 1000,
-      "repetition_penalty" : 1.2,
-      "token": hfAuth # login to HuggingFace for access if necessary (necessary for llama models)
-    }
+  llm = HuggingFacePipeline(
+    pipeline = pipe
   )
   
   return llm
@@ -313,7 +345,7 @@ def db_embeddings(embeddingModel):
   
   
 # GENERATORS
-def standalone_question_generator(llm, chat_history):
+def standalone_question_generator(llm):
   """
   When invoked, uses that chat history and the question to create a standalone question - no ambiguous pronouns, etc.
   
@@ -327,20 +359,13 @@ def standalone_question_generator(llm, chat_history):
   Returns
   -------
   standalone_question_generator
-      A chain that will generate a standalone question when invoked with a question.
+      A chain that will generate a standalone question when invoked with a question and chat history.
   """
-  if (len(chat_history) == 0): # if there is no chat history...
-    standalone_question_generator = (
-      RunnablePassthrough()
-    )
-    
-  else:
-    standalone_question_generator = (
-      {"chat_history" : MessagesPlaceholder(chat_history), "question" : RunnablePassthrough()} # chat history and the original question...
-      | standalone_question_prompt() # are inserted into the prompt...
-      | llm # which prompts the llm to create a standalone question...
-      | RunnableLambda(get_standalone_question) # and trim off the prompt
-    )
+  standalone_question_generator = (
+    standalone_question_prompt() # original question and chat history inserted into the prompt...
+    | llm # which prompts the llm to create a standalone question...
+    | RunnableLambda(get_standalone_question) # and trim off the prompt
+  )
   
   return standalone_question_generator
 
@@ -364,9 +389,10 @@ def json_query_generator(llm):
   
   json_query_generator = (
     query_constructor_prompt() # see query_constructor_prompt() under PROMPTS
-    | RunnableLambda(let_me_see)
     | llm # the llm is prompted to create a JSON string structured as requested...
+    | RunnableLambda(let_me_see)
     | RunnableLambda(get_final) # the prompt is trimmed off...
+    | RunnableLambda(get_json_query)
     | output_parser # and the JSON string is parsed to determine the query and filter
   )
   
@@ -411,7 +437,7 @@ def qa_prompt():
 def cons_prompt():
   """
   Prompt used for outlining consequences of a specific cyberattack.
-  Content of prompt: "Start with a one sentence synopsis of the following context. For cybersecurity within the power industry, describe the ramifications of an attack as outlined in the context being ignored. Be specific about how these ramifications come about. Tailor your response as if speaking to {audience}.
+  Content of prompt: "Start with a one sentence synopsis of the following context. Describe the ramifications of ignoring an attack as outlined in the context. Be specific about how these ramifications come about. Tailor your response as if speaking to {audience}.
     
   {context}
     
@@ -423,7 +449,7 @@ def cons_prompt():
       A prompt template with content as shown above in which audience and context are filled in at a later step.
   """
   prompt_template = """
-  Start with a one sentence synopsis of the following context. For cybersecurity within the power industry, describe the ramifications of an attack as outlined in the context being ignored. Be specific about how these ramifications come about. Tailor your response as if speaking to {audience}.
+  Start with a one sentence synopsis of the following context. Describe the ramifications of ignoring an attack as outlined in the context. Be specific about how these ramifications come about. Tailor your response as if speaking to {audience}.
     
   {context}
     
@@ -564,12 +590,12 @@ def query_constructor_prompt():
     A logical condition statement is composed of one or more comparison and logical operation statements.
     
     A comparison statement takes the form: `comp(attr, val)`:
-    - `comp` ($eq | $ne | $gt | $gte | $lt | $lte): comparator
+    - `comp` {comparators}: comparator
     - `attr` (string):  name of attribute to apply the comparison to
     - `val` (string): is the comparison value
     
     A logical operation statement takes the form `op(statement1, statement2, ...)`:
-    - `op` (and | or | not): logical operator
+    - `op` {logical_operators}: logical operator
     - `statement1`, `statement2`, ... (comparison statements or logical operation statements): one or more statements to apply the operation to
     
     Make sure that you only use the comparators and logical operators listed above and no others.
@@ -605,6 +631,11 @@ def query_constructor_prompt():
     }}
     ```
   """
+
+  comparators = "($eq | $ne | $gt | $gte | $lt | $lte)"
+
+  logical_operators = "(and | or)"
+
   data_source = """
     ```json
     {{
@@ -629,6 +660,16 @@ def query_constructor_prompt():
     question = "In CVE-2024-0015, is the vulnerability due to improper input validation in the DreamService.java file?",
     query = "description",
     filter_statement = "eq(\\\"cveId\\\", \\\"CVE-2024-0015\\\")"
+  ) + query_constructor_example(
+    i = 3,
+    question = "Does the vulnerability described by CVE-2024-0015 affect Android versions 11, 12, 12L, and 13 with a default status of unaffected?",
+    query = "versions",
+    filter_statement = "eq(\\\"cveId\\\", \\\"CVE-2024-0015\\\")"
+  ) + query_constructor_example(
+    i = 4,
+    question = "Does the vulnerability described by CVE-2024-0009 have a solution that I can implement?",
+    query = "solutions",
+    filter_statement = "eq(\\\"cveId\\\", \\\"CVE-2024-0009\\\")"
   )
   
   prompt_template = (f"""
@@ -644,12 +685,12 @@ def query_constructor_prompt():
     A logical condition statement is composed of one or more comparison and logical operation statements.
     
     A comparison statement takes the form: `comp(attr, val)`:
-    - `comp` ($eq | $ne | $gt | $gte | $lt | $lte): comparator
+    - `comp` {comparators}: comparator
     - `attr` (string):  name of attribute to apply the comparison to
     - `val` (string): is the comparison value
     
     A logical operation statement takes the form `op(statement1, statement2, ...)`:
-    - `op` (and | or | not): logical operator
+    - `op` {logical_operators}: logical operator
     - `statement1`, `statement2`, ... (comparison statements or logical operation statements): one or more statements to apply the operation to
     
     Make sure that you only use the comparators and logical operators listed above and no others.
@@ -753,7 +794,7 @@ def snip(
   ending_index = -1 # unless specified, snip will go to end of output
   
   if (starting_index == -1): # beginning of excerpt can't be found
-    return "Expected characters are not present in output."
+    starting_index = 0 
   
   after_starting_characters = starting_index + len(starting_characters) # index of end of starting characters
   
@@ -765,10 +806,9 @@ def snip(
       ending_characters, 
       after_starting_characters
     )
-  """
+
   if (ending_index == -1): # if ending_characters can't be found or weren't specified
     return output[starting_index:] # return starting index to end of output
-  """
     
   if (include_end): # if ending characters should be included
     ending_index += len(ending_characters) #change ending_index to after ending_characters
@@ -843,7 +883,7 @@ def get_json_query(output):
 
 # TROUBLESHOOTING
 def let_me_see(text):
-  print(text)
+  print(f"{text=}")
   return text
 
 

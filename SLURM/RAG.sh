@@ -20,7 +20,7 @@
 #SBATCH --mail-type=END
 # 5 days is the run time MAX, anything over will be KILLED unless you talk with RC
 # Request 0 days, 0 hours, 30 minutes, and 0 seconds
-#SBATCH -t 0-0:30:0
+#SBATCH -t 0-0:10:0
 #Put the job in the appropriate partition matching the account and request one core
 #SBATCH -A malont -p tier3 -c 1
 #Job membory requirements in MB=m (default), GB=g, or TB=t
