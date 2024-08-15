@@ -12,6 +12,7 @@ import torch
 
 # RAG
 from langchain_core.runnables import RunnableLambda # also in GENERATORS
+from langchain_core.prompts.chat import MessagesPlaceholder
 
 # LLM
 import transformers
@@ -137,11 +138,9 @@ def rag(
   Returns
   -------
   list
-      A condensed chat history.
+      A chat history.
   """
   standalone_question = standalone_question_generator(llm, chat_history).invoke(question) # standalone_question_generator() is under GENERATORS
-  
-  print(f"{standalone_question=}")
   
   context = format_docs(retriever.invoke(standalone_question)) # the documents that the LLM will use to answer the question
   
@@ -168,12 +167,19 @@ def rag(
     audience = audience,
     context = context
   )
+
+  chat_history.append(("input", generator_input))
   
-  generator_output = llm.invoke(generator_input)
+  generator_output = (
+    llm
+    | RunnableLambda(get_helpful_answer)
+  ).invoke(generator_input)
+
+  chat_history.append(("output", generator_output))
   
   print(generator_output)
-  
-  return [generator_input, generator_output]
+
+  return chat_history
 
 
 
@@ -212,6 +218,7 @@ def create_llm(llmModel):
     },
     pipeline_kwargs = {
       "max_new_tokens" : 1000,
+      "repetition_penalty" : 1.2,
       "token": hfAuth # login to HuggingFace for access if necessary (necessary for llama models)
     }
   )
@@ -322,17 +329,17 @@ def standalone_question_generator(llm, chat_history):
   standalone_question_generator
       A chain that will generate a standalone question when invoked with a question.
   """
-  if (len(chat_history) > 0): # if there is no chat history...
+  if (len(chat_history) == 0): # if there is no chat history...
     standalone_question_generator = (
-      {"chat_history" : chat_history, "question" : RunnablePassthrough()} # chat history and the original question...
-      | standalone_question_prompt() # are inserted into the prompt...
-      | llm # which prompts the llm to create a standalone question...
-      | RunnableLambda(get_standalone_question) # and trim off the prompt
+      RunnablePassthrough()
     )
     
   else:
     standalone_question_generator = (
-      RunnablePassthrough()
+      {"chat_history" : MessagesPlaceholder(chat_history), "question" : RunnablePassthrough()} # chat history and the original question...
+      | standalone_question_prompt() # are inserted into the prompt...
+      | llm # which prompts the llm to create a standalone question...
+      | RunnableLambda(get_standalone_question) # and trim off the prompt
     )
   
   return standalone_question_generator
@@ -357,6 +364,7 @@ def json_query_generator(llm):
   
   json_query_generator = (
     query_constructor_prompt() # see query_constructor_prompt() under PROMPTS
+    | RunnableLambda(let_me_see)
     | llm # the llm is prompted to create a JSON string structured as requested...
     | RunnableLambda(get_final) # the prompt is trimmed off...
     | output_parser # and the JSON string is parsed to determine the query and filter
@@ -369,16 +377,6 @@ def json_query_generator(llm):
 
 
 # PROMPTS
-def pass_along_prompt():
-  prompt_template = "{text}"
-  
-  return PromptTemplate(
-    input_variables = ["text"],
-    template = prompt_template
-  )
-  
-  
-  
 def qa_prompt():
   """
   Prompt used for question-answering.
@@ -685,6 +683,24 @@ def query_constructor_prompt():
 
 
 # OUTPUT PROCESSING FUNCTIONS
+def list_to_string(list):
+  """
+  Returns a String composed of a list of Strings joined together by two new lines.
+
+  Parameters
+  ----------
+  list: list
+      The list of strings to be joined together.
+    
+  Returns
+  -------
+  "\\n\\n".join(list)
+      A String composed of the list of Strings put together.
+  """
+  return "\n\n".join(list)
+
+
+
 def format_docs(docs):
   """
   Returns a String of document page contents separated by two new lines.
@@ -698,7 +714,7 @@ def format_docs(docs):
   -------
   A String of only the page contents of those documents - no metadata.
   """
-  return "\n\n".join(doc.page_content for doc in docs)
+  return list_to_string(doc.page_content for doc in docs)
 
 
 
@@ -749,9 +765,10 @@ def snip(
       ending_characters, 
       after_starting_characters
     )
-    
+  """
   if (ending_index == -1): # if ending_characters can't be found or weren't specified
     return output[starting_index:] # return starting index to end of output
+  """
     
   if (include_end): # if ending characters should be included
     ending_index += len(ending_characters) #change ending_index to after ending_characters
