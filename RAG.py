@@ -68,38 +68,23 @@ SCRIPT
 def main():
   llm = create_llm(llmModel) # initialize llm
   
-  dbEmbeddings = db_embeddings(embeddingModel) # embedding function corresponding to transformer model
-  
-  db, translator = access_chromaDB( # access persistent chromaDB and appropriate translator
-    dbLoc, 
-    dbEmbeddings
-  )
-  
-  retriever = create_retriever( # initialize retriever
-    llm, 
-    db, 
-    translator
-  )
-  
   question = "Does the vulnerability described in CVE-2024-0011 allow for the execution of arbitrary code on the affected system?"
   
   rag(
     question,
     llm,
-    retriever
+    audience = "a child"
   )
   
   rag(
     question,
     llm,
-    retriever,
     task = "sc"
   )
 
   rag(
     question,
     llm,
-    retriever,
     task = "cons"
   )
 
@@ -115,7 +100,6 @@ FUNCTIONS
 def rag(
   question,
   llm,
-  retriever,
   chat_history = [],
   task = "qa",
   audience = "a general audience"
@@ -155,7 +139,7 @@ def rag(
       }
     )
   
-  context = format_docs(retriever.invoke(standalone_question)) # the documents that the LLM will use to answer the question
+  retriever = create_retriever(llm, embeddingModel, dbLoc)
   
   if (task == "cons"):
     partial_prompt = cons_prompt() # cons_prompt() is under PROMPTS
@@ -176,17 +160,24 @@ def rag(
       """)
       
     prompt = qa_prompt() # qa_prompts() is under PROMPTS
-    printTask = "Question Answering: "
     partial_prompt = prompt.partial(
       question = standalone_question
     ) 
+    printTask = "Question Answering: "
   
+  print(printTask + question)
+
+  context = ( # the documents that the LLM will use to answer the question
+    retriever
+    |format_docs
+  ).invoke(standalone_question)
+
+  print(context)
+
   generator_input = partial_prompt.format(
     audience = audience,
     context = context
   )
-
-  print(printTask + question)
 
   chat_history.append(("system", generator_input))
   
@@ -260,7 +251,7 @@ def create_llm(llmModel):
 
 
 # RETRIEVER
-def create_retriever(llm, db, translator):
+def create_retriever(llm, embeddingModel, dbLoc):
   """
   Creates the document retriever. Documents can be filtered by metadata. Documents are represented by vectors, and the vectors that are the closest match to the question asked to the RAG are retrieved.
     
@@ -281,6 +272,13 @@ def create_retriever(llm, db, translator):
   SelfQueryRetriever
       Can retrieve relevant documents when invoked.
   """
+  dbEmbeddings = db_embeddings(embeddingModel) # embedding function corresponding to transformer model
+  
+  db, translator = access_chromaDB( # access persistent chromaDB and appropriate translator
+    dbLoc, 
+    dbEmbeddings
+  )
+
   retriever = SelfQueryRetriever(
     query_constructor = json_query_generator(llm),
     vectorstore = db,
@@ -393,6 +391,7 @@ def json_query_generator(llm):
     | RunnableLambda(let_me_see)
     | RunnableLambda(get_final) # the prompt is trimmed off...
     | RunnableLambda(get_json_query)
+    | RunnableLambda(let_me_see)
     | output_parser # and the JSON string is parsed to determine the query and filter
   )
   
