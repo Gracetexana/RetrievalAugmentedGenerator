@@ -2,29 +2,14 @@ The token has not been saved to the git credentials helper. Pass `add_to_git_cre
 Token is valid (permission: fineGrained).
 Your token has been saved to /home/gtl1500/.cache/huggingface/token
 Login successful
-A database contains documents with information about cybersecurity vulnerabilities. The documents may have any of the following sections: affected, configurations, credits, datePublic, descriptions, exploits, metrics, problemTypes, providerMetadata, references, solutions, source, timeline, title, workarounds, x_generator.
-    
-A query should contain only one word from the list of sections. The word should correspond to the section most likely to contain information that could answer the User Query.
 
 
-<< Example 1 >>
-User Query: Does CVE-2024-0008 affect multiple versions of the software?
-"query": "versions"
-
-<< Example 2 >>
-User Query: In CVE-2024-0015, is the vulnerability due to improper input validation in the DreamService.java file?
-"query": "description"
-
-<< Example 3 >>
-User Query: Does the vulnerability described by CVE-2024-0015 affect Android versions 11, 12, 12L, and 13 with a default status of unaffected?
-"query": "versions"
-
-<< Example 4 >>
-User Query: Does the vulnerability described by CVE-2024-0009 have a solution that I can implement?
-"query": "solutions"
+Question answering for a child: Does the vulnerability described in CVE-2024-0011 allow for the execution of arbitrary code on the affected system?
 
 
-<< Final >>
-User Query: Does the vulnerability described in CVE-2024-0011 allow for the execution of arbitrary code on the affected system?
-"query":  "exploits"
+text='\nUser Query:\nDoes the vulnerability described in CVE-2024-0011 allow for the execution of arbitrary code on the affected system?\n\n"filter": "eq(\\"cveId\\", \\"CVE-2024-0011\\")"\n'
+
+
+text='"filter": "eq(\\"cveId\\", \\"CVE-2024-0011\\")"'
+
 

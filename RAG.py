@@ -45,21 +45,15 @@ dbLoc = "../ChromaDB"
 
 def main():
   login(token = hfAuth)
+  print()
+  print()
 
   llm = create_llm(llmModel) # initialize llm
 
   retriever = create_retriever(llm, embeddingModel, dbLoc)
   
   question = "Does the vulnerability described in CVE-2024-0011 allow for the execution of arbitrary code on the affected system?"
-  
-  chain = (
-    query_constructor_prompt()
-    | llm
-  )
 
-  print(chain.invoke(question))
-
-  """
   rag(
     question,
     llm,
@@ -82,7 +76,6 @@ def main():
     task = "cons",
     audience = "a class of military recruits"
   )
-  """
 
 
 
@@ -116,7 +109,7 @@ def create_llm(llmModel):
     model_id = llmModel,
     task = "text-generation",
     model_kwargs ={
-      "temperature" : 0.3, # how random outputs are; 0.1 is not very random
+      "temperature" : 0.1, # how random outputs are; 0.1 is not very random
       "do_sample" : True,
       "device_map" : "auto", # automatically allocates resources between GPUs (and CPUs if necessary)
       "quantization_config" : bnb_config, # quantization: more efficient computing, less memory
@@ -551,6 +544,7 @@ def structured_request_chain(llm):
     }
     | structured_request_prompt()
     | RunnableLambda(let_me_see)
+    | RunnableLambda(prompt_to_string)
     | output_parser # and the JSON string is parsed to determine the query and filter
   )
   
@@ -570,6 +564,11 @@ def structured_request_prompt():
     input_variables = ["query", "filter"],
     template = prompt_template
   )
+
+
+
+def prompt_to_string(promptValue):
+  return promptValue.to_string()
 
 
 
@@ -599,7 +598,8 @@ A query should contain only one word from the list of sections. The word should 
 
 << Final >>
 User Query: {{query}}
-"query": """
+
+"query":"""
   )
   
   return PromptTemplate(
@@ -634,46 +634,50 @@ def filter_chain(llm):
 
 
 def filter_constructor_prompt():
+  docs_description = get_data_source().get("content").get("description")
+
+  formatted_attributes = format_attributes()
+  
+  comparators = "eq, ne, gt, gte, lt, lte"
+
+  logical_operators = "and, or"
+  
   filter_examples = format_examples(get_example_data(), "filter")
   
-  attributes = get_data_source().get("attributes")
-  
-  comparators = "(eq | ne | gt | gte | lt | lte)"
-
-  logical_operators = "(and | or)"
-  
   prompt_template = (
-  f"""Create a filter statement using the Data Source, the allowed comparators, the allowed logical_operators, and supplied User Query.
-    
-  Data Source:
-  {attributes}
+f"""A database contains documents with information about {docs_description}. Your task is to create a filter statement based on a User Query that can be used to filter the documents within this database. If the User Query does not contain any described attributes, return "NO_FILTER" instead.
 
-  The filter can only contain the following comparators: {comparators}. A comparator statement looks like this: comparator(attribute, value)
+Allowed attributes: {formatted_attributes}.
+Allowed comparators: {comparators}.
+Allowed logical_operators: {logical_operators}.
+{filter_examples}
+<< Final >>
+User Query:
+{{query}}
 
-  A comparator statement can only contain attributes listed in the Data Source.
-
-  The type of a value within a comparator statement must be the type of the attribute listed in the Data Source.
-
-  The filter can only contain the following logical_operators: {logical_operators}. A logical_operator statement can contain two or more comparator statements and/or logical_operator statements. The simplest logical_operator statement looks like this: logical_operator(comparator(attribute, value), comparator(attribute, value))
-
-  If a User Query does not contain attributes listed in the Data Source, the filter is "NO_FILTER".
-
-  Correct filter statements include, but are not limited to, the following:
-    "comparator(attribute, value)"
-    "logical_operator(comparator(attribute, value), comparator(attribute, value))"
-    "NO_FILTER"
-
-  {filter_examples}
-
-  << Final >>
-  User Query: {{query}}
-  "filter": """
+"filter":"""
   )
   
   return PromptTemplate(
     input_variables = ["query"],
     template = prompt_template
   )
+
+
+
+def format_attributes():
+  attribute_data = get_data_source().get("attributes")
+  attributes = attribute_data.keys()
+  formatted_attributes = []
+
+  for attr in attributes:
+    
+    attr_description = attribute_data.get(attr).get('description')
+    attr_type = attribute_data.get(attr).get('type')
+
+    formatted_attributes.append(f"{attr} ({attr_description}, type: {attr_type})")
+
+  return ", ".join(formatted_attributes)
 
 
 
@@ -697,8 +701,8 @@ def get_data_source():
     },
     "attributes": {
       "cveId": {
-          "description": "A unique alphanumeric identifier for the vulnerability. Format: CVE-YYYY-NNNN",
-          "type": "string"
+          "description": "format: CVE-YYYY-NNNN",
+          "type": "String"
       }
     }
   }
@@ -742,7 +746,7 @@ def get_example_data():
     "solutions",
     "eq(\\\"cveId\\\", \\\"CVE-2024-0009\\\")"
   ))
-
+  
   return examples
 
 
@@ -752,9 +756,9 @@ def format_examples(example_data, selection):
   i = 1
   for example in example_data:
     examples += (f"\n<< Example {i} >>")
-    examples += "\nUser Query: "
+    examples += "\nUser Query:\n"
     examples += example.get("User Query")
-    examples += "\n\"" + selection + "\": "
+    examples += "\n\n\"" + selection + "\": "
     examples += ("\"" + example.get(selection) + "\"")
     examples += "\n"
     i += 1
