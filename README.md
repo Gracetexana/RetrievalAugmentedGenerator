@@ -1,3 +1,5 @@
+# Intro
+
 All code in this personal project is entirely mine. It was inspired by a group project completed with two other students under INSuRE+C. Some of my code, included in this personal project, was also included in the group project.
 
 A Retrieval Augmented Generator, or RAG, is a type of AI model that can 1) translate a person's input into embeddings (computer language), 2) search through a database for documents with similar embeddings (documents related to the input), 3) pass those documents + the input to a generator (an AI/LLM), which 4) outputs an informed response.
@@ -6,9 +8,13 @@ In October 2023, two other students, a professor, and I partnered with Argonne N
 
 The parts of my code that were included in the group project were [CreateDatabase.py](CreateDatabase.py), as well as the following pieces of [RAG.py](RAG.py): createRetriever() and all of its helper functions and the prompts from cons_prompt() and sc_prompt(). For this personal project, I had to make my own version of the LLM/AI used to generate responses. I wanted to create this personal project for a few different reasons. The primary reason was that I wanted experience in developing every part of the RAG since I was not able to code everything in the group project. Relatedly, I wished to understand the inner workings of the RAG. Finally, I wanted a chance to organize the code to my taste.
 
+# What's in this repository?
+
 [CreateDatabase.py](CreateDatabase.py) can be used to create a Chroma Vector Database from a folder of JSON files. The code can be changed to read other types of files, but I only needed to read JSON files when I created it. I may add more functionality as required.
 
 The main() function of [RAG.py](RAG.py) asks the same question three different times using different prompts - one of these prompts is primarily the creation of LangChain, and the other two are entirely my own. [RAG7.o](SLURM/RAG7.o) and [RAG8.o](SLURM/RAG8.o) are the best outputs from running [RAG.py](RAG.py), but there are are a variety of responses in the [SLURM](SLURM) folder (each file ending with .o), including some erros.
+
+# Future plans
 
 This project is a work in progress. Currently, several areas need improvement. In the order that I plan to tackle them, these issues are:
 
