@@ -8,7 +8,7 @@ The parts of my code that were included in the group project were [CreateDatabas
 
 [CreateDatabase.py](CreateDatabase.py) can be used to create a Chroma Vector Database from a folder of JSON files. The code can be changed to read other types of files, but I only needed to read JSON files when I created it. I may add more functionality as required.
 
-The main() function of [RAG.py](RAG.py) asks the same question three different times using different prompts - one of these prompts is primarily the creation of LangChain, and the other two are entirely my own. [RAG.o](SLURM/RAG.o) is an example output from running [RAG.py](RAG.py).
+The main() function of [RAG.py](RAG.py) asks the same question three different times using different prompts - one of these prompts is primarily the creation of LangChain, and the other two are entirely my own. [RAG7.o](SLURM/RAG7.o) and [RAG8.o](SLURM/RAG8.o) are the best outputs from running [RAG.py](RAG.py), but there are are a variety of responses in the [SLURM](SLURM) folder (each file ending with .o), including some erros.
 
 This project is a work in progress. Currently, several areas need improvement. In the order that I plan to tackle them, these issues are:
 
@@ -17,6 +17,8 @@ This project is a work in progress. Currently, several areas need improvement. I
 - The LLM/AI portion of [RAG.py](RAG.py) is not performing as well as the LLM/AI used in the group project. Mine frequently freezes up when I run my script. Because of the LLM/AI from the project, I KNOW that better results are possible. This presents an opportunity for me to become better acquainted with different LLM/AI parameters.
 
 - I've realized that LangChain has a RecursiveJsonSplitter. In my [CreateDatabase.py](CreateDatabase.py), I used a CharacterTextSplitter instead, which I believe is wrong. I noticed that my document "chunks" did not seem to be 250 tokens long, and I think this is why. Fixing this issue will also require me to improve the query_constructor_prompt() I have in [RAG.py](RAG.py).
+
+- I'd like to be able to pull a list of questions from an Excel spreadsheet or Google Sheet.
 
 - I have not been able to get chat history working. This comes down to me not understanding the mechanics behind LangChain's concept of chat history. Implementing it shouldn't be too tricky, but I'd prefer to improve my model's performance without chat history before adding that extra variable.
 
