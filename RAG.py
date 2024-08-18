@@ -117,7 +117,6 @@ def create_llm(llmModel):
     },
     pipeline_kwargs = {
       "max_new_tokens" : 1028,
-      "max_length" : None,
       "repetition_penalty" : 1.1 # prevents some repetition in model responses
     }
   )
@@ -190,6 +189,8 @@ def rag(
   )
 
   print(chain.invoke(standalone_question))
+  print()
+  print()
 
   return chat_history
 
@@ -313,15 +314,14 @@ def qa_prompt():
   PromptTemplate(...)
       A prompt template with content as shown above in which audience, context, and question are filled in at a later step.
   """
-  prompt_template = """
-  Use the following pieces of context to answer the question at the end. If you don't know the answer, just say that you don't know, don't try to make up an answer. Tailor your response as if speaking to {audience}.
-    
-  {context}
-    
-  Question: {query}
-  Helpful Answer: 
-  """
-  
+  prompt_template = (
+"""Use the following pieces of context to answer the question at the end. If you don't know the answer, just say that you don't know, don't try to make up an answer. Tailor your response as if speaking to {audience}.
+
+{context}
+
+Question: {query}
+Helpful Answer:"""
+  )
   return PromptTemplate(
     input_variables = ["audience", "context", "question"],
     template = prompt_template
@@ -343,13 +343,13 @@ def cons_prompt():
   PromptTemplate(...)
       A prompt template with content as shown above in which audience and context are filled in at a later step.
   """
-  prompt_template = """
-  Start with a one sentence synopsis of the following context. Describe the ramifications of ignoring an attack as outlined in the context. Be specific about how these ramifications come about. Tailor your response as if speaking to {audience}.
-    
-  {context}
-    
-  Helpful Answer: 
-  """
+  prompt_template = (
+"""Start with a one sentence synopsis of the following context. Describe the ramifications of ignoring an attack as outlined in the context. Be specific about how these ramifications come about. Tailor your response as if speaking to {audience}.
+
+{context}
+
+Helpful Answer:"""
+  )
   
   return PromptTemplate(
     input_variables = ["audience", "context"],
@@ -372,13 +372,13 @@ def sc_prompt():
   PromptTemplate(...)
       A prompt template with content as shown above in which audience and context are filled in at a later step.
   """
-  prompt_template = """
-  Use the following pieces of context to describe a potential attack that could be faced by a security team within the power industry. Be specific in who the attacker is and what they are doing so that the security team can discuss an appropriate response. Tailor your response as if speaking to {audience}.
-    
-  {context}
-  
-  Helpful Answer: 
-  """
+  prompt_template = (
+"""Use the following pieces of context to create a realistic and descriptive narrative of this attack occuring. Be specific in who the attacker is and what they are doing. Tailor your response as if speaking to {audience}.
+
+{context}
+
+Helpful Answer:"""
+  )
   
   return PromptTemplate(
     input_variables = ["audience", "context"],
@@ -543,7 +543,6 @@ def structured_request_chain(llm):
       "query": query_chain(llm), "filter": filter_chain(llm)
     }
     | structured_request_prompt()
-    | RunnableLambda(let_me_see)
     | RunnableLambda(prompt_to_string)
     | output_parser # and the JSON string is parsed to determine the query and filter
   )
@@ -578,9 +577,7 @@ def query_chain(llm):
     query_constructor_prompt()
     | llm 
     | RunnableLambda(get_final)
-    | RunnableLambda(let_me_see)
     | RunnableLambda(get_query_statement)
-    | RunnableLambda(let_me_see)
   )
 
 
@@ -626,9 +623,7 @@ def filter_chain(llm):
     filter_constructor_prompt()
     | llm 
     | RunnableLambda(get_final)
-    | RunnableLambda(let_me_see)
     | RunnableLambda(get_filter_statement)
-    | RunnableLambda(let_me_see)
   )
 
 
