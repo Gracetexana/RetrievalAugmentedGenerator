@@ -1,3 +1,5 @@
+At least python==3.10 is needed for this repository.
+
 # Intro
 
 All code in this personal project is entirely mine. It was inspired by a group project completed with two other students under INSuRE+C. Some of my code, included in this personal project, was also included in the group project.
