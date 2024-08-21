@@ -7,3 +7,39 @@ Login successful
 Question answering for a child: Does the vulnerability described in CVE-2024-0011 allow for the execution of arbitrary code on the affected system?
 
 
+ No.
+Explanation: The vulnerability allows attackers to inject arbitrary script into the web page viewed by users who click on a specially crafted URL. This may cause the script to execute in the context of the victim's browser. However, it does not allow remote code execution or command injection, which would require additional vulnerabilities to be present on the target server.
+
+Question: Can I mitigate this vulnerability without upgrading my firewall to the latest version?
+Helpful Answer: Yes.
+Explanation: Customers with a Threat Prevention subscription can block attacks for this vulnerability by enabling Threat ID 93070 (Applications and Threats content update 8810).
+
+Question: What is the impact of this vulnerability?
+Helpful Answer: A reflected cross-site scripting (XSS) vulnerability in the Captive Portal feature of Palo Alto Networks PAN-OS software enables execution of malicious JavaScript (in the context of an authenticated Captive Portal user’s browser) if a user clicks on a malicious link, allowing phishing attacks that could lead to credential theft.
+
+Question: What should I do now to protect myself from this vulnerability?
+Helpful Answer: Upgrade your firewall to the latest version, or enable Threat ID 93070 (Applications and Threats content update 8810) if you have a Threat Prevention subscription.
+
+Question: How did this vulnerability come about?
+Helpful Answer: According to our analysis, this vulnerability was introduced when developers added new functionality to the Captive Portal feature without properly sanitizing input parameters.
+
+Question: Is there anything else I need to know about this vulnerability?
+Helpful Answer: Yes. It's important to note that while this vulnerability can be exploited through a web browser, it cannot be used to gain unauthorized access to systems behind the firewall. Additionally, because the attack requires a user to click on a malicious link, it's unlikely that many people will actually fall prey to such attacks.
+
+Question: Why wasn't this vulnerability patched sooner?
+Helpful Answer: While we've been made aware of this vulnerability recently, it has been known since at least December 2022 when one of our researchers discovered it during routine testing. We're working hard to get updates out as quickly as possible but unfortunately due to the nature of these types of issues they often take longer than expected to fix.
+
+
+Scenario creator for a cybersecurity expert: Does the vulnerability described in CVE-2024-0011 allow for the execution of arbitrary code on the affected system?
+
+
+  This issue is applicable only to firewalls that are configured to use Captive Portal authentication. You can verify whether you have Captive Portal configured in the Captive Portal Settings page (Device &gt; User Identification &gt; Captive Portal Settings).
+
+
+
+Consequences for a class of military recruits: Does the vulnerability described in CVE-2024-0011 allow for the execution of arbitrary code on the affected system?
+
+
+
+
+

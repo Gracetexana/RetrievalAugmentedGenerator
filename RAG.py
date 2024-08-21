@@ -9,15 +9,15 @@ from PersonalTokens import HFAuth
 
 import torch
 from huggingface_hub import login
-from langchain_core.runnables import RunnableLambda, RunnablePassthrough, RunnableParallel
-from langchain_core.prompts.chat import MessagesPlaceholder
-from transformers import BitsAndBytesConfig, AutoModelForCausalLM, AutoTokenizer, pipeline
+from langchain_core.runnables import RunnableLambda, RunnablePassthrough
+from transformers import BitsAndBytesConfig, GenerationConfig
 from langchain_huggingface import HuggingFacePipeline
 from langchain.retrievers.self_query.base import SelfQueryRetriever
 from langchain_chroma import Chroma
 from langchain_community.query_constructors.chroma import ChromaTranslator
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.chains.query_constructor.base import StructuredQueryOutputParser
+import re
 from langchain_core.prompts import PromptTemplate
 
 
@@ -120,6 +120,13 @@ def create_llm(llmModel):
       "repetition_penalty" : 1.1 # prevents some repetition in model responses
     }
   )
+
+  tokenizer = llm.pipeline.tokenizer
+
+  llm.pipeline.eos_token_id = [
+        tokenizer.eos_token_id,
+        tokenizer.convert_tokens_to_ids("<|eot_id|>")
+      ]
   
   return llm
 
@@ -539,239 +546,43 @@ def structured_request_chain(llm):
   output_parser = StructuredQueryOutputParser.from_components() # the llm will return a String that looks like JSON - this will identify the query and the filter from the String
   
   structured_request_chain = (
-    {
-      "query": query_chain(llm), "filter": filter_chain(llm)
-    }
-    | structured_request_prompt()
-    | RunnableLambda(prompt_to_string)
+    RunnableLambda(cve_id) 
+    | RunnableLambda(create_filter) 
+    | RunnableLambda(structured_request) 
     | output_parser # and the JSON string is parsed to determine the query and filter
   )
   
   return structured_request_chain
-    
-
-
-def structured_request_prompt():
-  prompt_template = (
-  """{{
-    {query},
-    {filter}
-  }}"""
-  )
-
-  return PromptTemplate(
-    input_variables = ["query", "filter"],
-    template = prompt_template
-  )
 
 
 
-def prompt_to_string(promptValue):
-  return promptValue.to_string()
+def cve_id(input):
+  return re.findall(r"CVE-[0-9]{4}-[0-9]{4}", input.get("query"))
 
 
 
-# query
-def query_chain(llm):
+def create_filter(list_of_matches):
+  if len(list_of_matches) < 1:
+    return "NO_FILTER"
+  
+  filters = []
+  for match in list_of_matches:
+    cveID = match
+    filters.append(f"eq(\\\"cveId\\\", \\\"{cveID}\\\")")
+
+  if len(filters) == 1:
+    return (f"{filters[0]}")
+  
+  return (f"or({', '.join(filters)})")
+
+
+
+def structured_request(filters):
   return (
-    query_constructor_prompt()
-    | llm 
-    | RunnableLambda(get_final)
-    | RunnableLambda(get_query_statement)
-  )
-
-
-def query_constructor_prompt():
-  query_examples = format_examples(get_example_data(), "query")
-
-  content = get_data_source().get("content")
-
-  prompt_template = (
-f"""A database contains documents with information about {content.get("description")}. The documents may have any of the following sections: {content.get("sections")}.
-    
-A query should contain only one word from the list of sections. The word should correspond to the section most likely to contain information that could answer the User Query.
-
-{query_examples}
-
-<< Final >>
-User Query: {{query}}
-
-"query":"""
-  )
-  
-  return PromptTemplate(
-    input_variables = ["query"],
-    template = prompt_template
-  )
-
-
-
-def get_query_statement(output):
-  return snip(
-    output,
-    starting_characters = "\"query\": \"",
-    include_start= True,
-    ending_characters = "\"",
-    include_end= True
-  )
-
-
-
-# filter
-def filter_chain(llm):
-  return (
-    filter_constructor_prompt()
-    | llm 
-    | RunnableLambda(get_final)
-    | RunnableLambda(get_filter_statement)
-  )
-
-
-
-def filter_constructor_prompt():
-  docs_description = get_data_source().get("content").get("description")
-
-  formatted_attributes = format_attributes()
-  
-  comparators = "eq, ne, gt, gte, lt, lte"
-
-  logical_operators = "and, or"
-  
-  filter_examples = format_examples(get_example_data(), "filter")
-  
-  prompt_template = (
-f"""A database contains documents with information about {docs_description}. Your task is to create a filter statement based on a User Query that can be used to filter the documents within this database. If the User Query does not contain any described attributes, return "NO_FILTER" instead.
-
-Allowed attributes: {formatted_attributes}.
-Allowed comparators: {comparators}.
-Allowed logical_operators: {logical_operators}.
-{filter_examples}
-<< Final >>
-User Query:
-{{query}}
-
-"filter":"""
-  )
-  
-  return PromptTemplate(
-    input_variables = ["query"],
-    template = prompt_template
-  )
-
-
-
-def format_attributes():
-  attribute_data = get_data_source().get("attributes")
-  attributes = attribute_data.keys()
-  formatted_attributes = []
-
-  for attr in attributes:
-    
-    attr_description = attribute_data.get(attr).get('description')
-    attr_type = attribute_data.get(attr).get('type')
-
-    formatted_attributes.append(f"{attr} ({attr_description}, type: {attr_type})")
-
-  return ", ".join(formatted_attributes)
-
-
-
-def get_filter_statement(output):
-  return snip(
-    output,
-    starting_characters = "\"filter\": \"",
-    include_start= True,
-    ending_characters = ")\"",
-    include_end= True
-  )
-
-
-
-# both
-def get_data_source():
-  return {
-    "content": {
-      "description": "cybersecurity vulnerabilities",
-      "sections": "affected, configurations, credits, datePublic, descriptions, exploits, metrics, problemTypes, providerMetadata, references, solutions, source, timeline, title, workarounds, x_generator"
-    },
-    "attributes": {
-      "cveId": {
-          "description": "format: CVE-YYYY-NNNN",
-          "type": "String"
-      }
-    }
-  }
-
-
-
-def example_data_maker(question, query, filter):
-  example = {
-    "User Query": question,
-    "query": query,
-    "filter": filter
-  }
-
-  return example
-   
-   
-   
-def get_example_data():
-  examples = []
-  
-  examples.append(example_data_maker(
-    "Does CVE-2024-0008 affect multiple versions of the software?",
-    "versions",
-    "eq(\\\"cveId\\\", \\\"CVE-2024-0008\\\")"
-  ))
-  
-  examples.append(example_data_maker(
-    "In CVE-2024-0015, is the vulnerability due to improper input validation in the DreamService.java file?",
-    "description",
-    "eq(\\\"cveId\\\", \\\"CVE-2024-0015\\\")"
-  ))
-  
-  examples.append(example_data_maker(
-    "Does the vulnerability described by CVE-2024-0015 affect Android versions 11, 12, 12L, and 13 with a default status of unaffected?",
-    "versions",
-    "eq(\\\"cveId\\\", \\\"CVE-2024-0015\\\")"
-  ))
-  
-  examples.append(example_data_maker(
-    "Does the vulnerability described by CVE-2024-0009 have a solution that I can implement?",
-    "solutions",
-    "eq(\\\"cveId\\\", \\\"CVE-2024-0009\\\")"
-  ))
-  
-  return examples
-
-
-  
-def format_examples(example_data, selection):
-  examples = ""
-  i = 1
-  for example in example_data:
-    examples += (f"\n<< Example {i} >>")
-    examples += "\nUser Query:\n"
-    examples += example.get("User Query")
-    examples += "\n\n\"" + selection + "\": "
-    examples += ("\"" + example.get(selection) + "\"")
-    examples += "\n"
-    i += 1
-
-  return examples
-
-
-
-def get_final(output):
-  """
-  Returns
-  -------
-  snip(...)
-      Extraction of text starting at "<< Final >>" (not inclusive), ending at end of the original text. See snip() above.
-  """
-  return snip(
-    output = output,
-    starting_characters = "<< Final >>"
+f"""{{
+  "query": "",
+  "filter": "{filters}"
+}}"""
   )
   
   
