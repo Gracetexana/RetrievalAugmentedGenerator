@@ -450,6 +450,7 @@ def create_retriever(llm, embeddingModel, dbLoc):
     structured_query_translator = translator
     )
     | RunnableLambda(format_docs)
+    | RunnableLambda(let_me_see)
   )
   
   return retriever
@@ -494,7 +495,8 @@ def access_chromaDB(dbLoc, dbEmbeddings):
   """
   db = Chroma(
     persist_directory = dbLoc, 
-    embedding_function = dbEmbeddings
+    embedding_function = dbEmbeddings,
+    collection_name = "CVEs"
   )
   
   translator = ChromaTranslator()
