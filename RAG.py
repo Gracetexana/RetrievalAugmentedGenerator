@@ -44,27 +44,19 @@ dbLoc = "../ChromaDB"
 
 
 def main():
-  login(token = hfAuth)
-  print()
-  print()
-
-  llm = create_llm(llmModel) # initialize llm
-
-  retriever = create_retriever(llm, embeddingModel, dbLoc)
+  llm = create_llm() # initialize llm
   
   question = "Does the vulnerability described in CVE-2024-0011 allow for the execution of arbitrary code on the affected system?"
 
   rag(
     question,
     llm,
-    retriever,
     audience = "a child"
   )
   
   rag(
     question,
     llm,
-    retriever,
     task = "sc",
     audience = "a cybersecurity expert"
   )
@@ -72,7 +64,6 @@ def main():
   rag(
     question,
     llm,
-    retriever,
     task = "cons",
     audience = "a class of military recruits"
   )
@@ -84,7 +75,7 @@ def main():
 """
 LLM
 """
-def create_llm(llmModel):
+def create_llm():
   """
   Initizalizes llm specified by llmModel from HuggingFace.
   
@@ -140,8 +131,6 @@ RAG
 def rag(
   question,
   llm,
-  retriever,
-  chat_history = [],
   task = "qa",
   audience = "a general audience"
 ):
@@ -170,16 +159,6 @@ def rag(
   list
       A chat history.
   """
-  standalone_question = question
-
-  # if (chat_history):
-  #   standalone_question = standalone_question_generator(llm).invoke( 
-  #     {
-  #       "chat_history": chat_history,
-  #       "question": question
-  #     }
-  #   )
-
   partial_prompt, printTask = choose_task(task)
   
   print(printTask + "for " + audience + ": " + question + "\n\n")
@@ -188,94 +167,18 @@ def rag(
     audience = audience
   )
 
+  retriever = create_retriever()
+
   chain = (
     {"context": retriever, "query": RunnablePassthrough()}
     | prompt
     | llm
-    | RunnableLambda(get_helpful_answer)
+    | RunnableLambda(get_llm_response)
   )
 
-  print(chain.invoke(standalone_question))
+  print(chain.invoke(question))
   print()
   print()
-
-  return chat_history
-
-
-
-# STANDALONE QUESTION
-def standalone_question_chain(llm):
-  """
-  When invoked, uses that chat history and the question to create a standalone question - no ambiguous pronouns, etc.
-  
-  Parameters
-  ----------
-  llm: HuggingFacePipeline
-      The LLM/AI used to generate the standalone question.
-  chat_history: list
-      The previous prompt (including the question/standalone question) used to generate an answer and the answer itself.
-  
-  Returns
-  -------
-  standalone_question_generator
-      A chain that will generate a standalone question when invoked with a question and chat history.
-  """
-  standalone_question_generator = (
-    standalone_question_prompt() # original question and chat history inserted into the prompt...
-    | llm # which prompts the llm to create a standalone question...
-    | RunnableLambda(get_standalone_question) # and trim off the prompt
-  )
-  
-  return standalone_question_generator
-
-
-
-def standalone_question_prompt():
-  """
-  Prompt used for turning an ambiguous question into a standalone question using chat history.
-  Content of prompt: "Given the following conversation and a follow up question, rephrase the follow up question to be a standalone question, in its original language.
-  
-  Chat History:
-  {chat_history}
-  
-  Follow Up Input: {question}
-  Standalone question: "
-  
-  Returns
-  -------
-  PromptTemplate(...)
-      A prompt template with content as shown above in which chat_history and question are filled in at a later step.
-  """
-  prompt_template = """
-  Given the following conversation and a follow up question, rephrase the follow up question to be a standalone question, in its original language.
-  
-  Chat History:
-  {chat_history}
-  
-  Follow Up Input: {question}
-  Standalone question: 
-  """
-  
-  return PromptTemplate(
-    input_variables = ["chat_history", "question"],
-    template = prompt_template
-  )
-
-
-
-def get_standalone_question(output):
-  """
-  Returns
-  -------
-  snip(...)
-      Extraction of text starting at "Standalone Question:" (not inclusive), ending at "?" (inclusive). See snip() above.
-  """
-  return snip(
-    output = output,
-    starting_characters = "Standalone Question: ",
-    ending_characters = "?",
-    include_end = True
-  )
 
 
 
@@ -322,12 +225,12 @@ def qa_prompt():
       A prompt template with content as shown above in which audience, context, and question are filled in at a later step.
   """
   prompt_template = (
-"""Use the following pieces of context to answer the question at the end. If you don't know the answer, just say that you don't know, don't try to make up an answer. Tailor your response as if speaking to {audience}.
+"""<|begin_of_text|><|start_header_id|>system<|end_header_id|>Use the following pieces of context to answer the question at the end. If you don't know the answer, just say that you don't know, don't try to make up an answer. Tailor your response as if speaking to {audience}.
 
 {context}
-
-Question: {query}
-Helpful Answer:"""
+<|eot_id|>
+<|start_header_id|>user<|end_header_id|>{query}<|eot_id|>
+<|start_header_id|>assistant<|end_header_id|>"""
   )
   return PromptTemplate(
     input_variables = ["audience", "context", "question"],
@@ -351,11 +254,10 @@ def cons_prompt():
       A prompt template with content as shown above in which audience and context are filled in at a later step.
   """
   prompt_template = (
-"""Start with a one sentence synopsis of the following context. Describe the ramifications of ignoring an attack as outlined in the context. Be specific about how these ramifications come about. Tailor your response as if speaking to {audience}.
+"""<|begin_of_text|><|start_header_id|>system<|end_header_id|>Start with a one sentence synopsis of the following context. Describe the ramifications of ignoring an attack as outlined in the context. Be specific about how these ramifications come about. Tailor your response as if speaking to {audience}.
 
-{context}
-
-Helpful Answer:"""
+{context}<|eot_id|>
+<|start_header_id|>assistant<|end_header_id|>"""
   )
   
   return PromptTemplate(
@@ -380,11 +282,10 @@ def sc_prompt():
       A prompt template with content as shown above in which audience and context are filled in at a later step.
   """
   prompt_template = (
-"""Use the following pieces of context to create a realistic and descriptive narrative of this attack occuring. Be specific in who the attacker is and what they are doing. Tailor your response as if speaking to {audience}.
+"""<|begin_of_text|><|start_header_id|>system<|end_header_id|>Use the following pieces of context to create a realistic and descriptive narrative of this attack occuring. Be specific in who the attacker is and what they are doing. Tailor your response as if speaking to {audience}.
 
-{context}
-
-Helpful Answer:"""
+{context}<|eot_id|>
+<|start_header_id|>assistant<|end_header_id|>"""
   )
   
   return PromptTemplate(
@@ -395,17 +296,10 @@ Helpful Answer:"""
   
 
 # FORMATTING
-def get_helpful_answer(output):
-  """
-  Returns
-  -------
-  snip(...)
-      Extraction of text starting at "Helpful Answer:" (not inclusive), ending at "Final Answer:" (not inclusive). See snip() above.
-  """
+def get_llm_response(output):
   return snip(
     output = output, 
-    starting_characters = "Helpful Answer:",
-    ending_characters = "Final Answer:"
+    starting_characters = "<|start_header_id|>assistant<|end_header_id|>"
   ) 
 
 
@@ -415,37 +309,20 @@ def get_helpful_answer(output):
 """
 RETRIEVER
 """
-def create_retriever(llm, embeddingModel, dbLoc):
+def create_retriever():
   """
   Creates the document retriever. Documents can be filtered by metadata. Documents are represented by vectors, and the vectors that are the closest match to the question asked to the RAG are retrieved.
-    
-  Parameters
-  ----------
-  llm: HuggingFacePipeline
-      The llm used to generate portions of the RAG. 
-      Within the retriever, the llm detects a filter statement within the question and produces an appropriate json query to filter the documents.
-  db: Chroma database 
-      The vector database that holds the vector representations of documents that the RAG can use as context.
-      Other vector databases could work, but I do not have the code for it yet.
-  translator: ChromaTranslator
-      Translates the json query created by the llm to use in filtering the documents.
-      Must match the vector database.
       
   Returns
   -------
   SelfQueryRetriever
       Can retrieve relevant documents when invoked.
   """
-  dbEmbeddings = db_embeddings(embeddingModel) # embedding function corresponding to transformer model
-  
-  db, translator = access_chromaDB( # access persistent chromaDB and appropriate translator
-    dbLoc, 
-    dbEmbeddings
-  )
+  db, translator = access_chromaDB()
 
   retriever = (
     SelfQueryRetriever(
-    query_constructor = structured_request_chain(llm),
+    query_constructor = structured_request_chain(),
     vectorstore = db,
     structured_query_translator = translator
     )
@@ -475,7 +352,7 @@ def format_docs(docs):
   
   
 # DATABASE
-def access_chromaDB(dbLoc, dbEmbeddings):
+def access_chromaDB():
   """
   Access a Chroma Vector Database.
     
@@ -495,7 +372,7 @@ def access_chromaDB(dbLoc, dbEmbeddings):
   """
   db = Chroma(
     persist_directory = dbLoc, 
-    embedding_function = dbEmbeddings,
+    embedding_function = db_embeddings(),
     collection_name = "CVEs"
   )
   
@@ -505,7 +382,7 @@ def access_chromaDB(dbLoc, dbEmbeddings):
 
 
 
-def db_embeddings(embeddingModel):
+def db_embeddings():
   """
   Returns the embeddings used to translate documents in the form of vectors back to documents that contain words. Must match the embeddings that were used to create the database (see createDatabase.py).
   
@@ -531,7 +408,7 @@ def db_embeddings(embeddingModel):
   
 
 # STRUCTURED REQUEST
-def structured_request_chain(llm):
+def structured_request_chain():
   """
   When invoked, turns a question into a JSON structured request.
   
@@ -620,7 +497,7 @@ def snip(
   output[starting_index:ending_index]
       The desired snippet of the output.
   """
-  starting_index = output.find( # find the beginning of your excerpt
+  starting_index = output.rfind( # find the beginning of your excerpt
     starting_characters
   )
   
