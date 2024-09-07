@@ -167,7 +167,7 @@ def rag(
     audience = audience
   )
 
-  retriever = create_retriever()
+  retriever = create_multi_retriever()
 
   chain = (
     {"context": retriever, "query": RunnablePassthrough()}
@@ -225,7 +225,7 @@ def qa_prompt():
       A prompt template with content as shown above in which audience, context, and question are filled in at a later step.
   """
   prompt_template = (
-"""<|begin_of_text|><|start_header_id|>system<|end_header_id|>Use the following pieces of context to answer the question at the end. If you don't know the answer, just say that you don't know, don't try to make up an answer. Tailor your response as if speaking to {audience}.
+"""<|begin_of_text|><|start_header_id|>system<|end_header_id|>Use the following pieces of context provided in json format to answer the question at the end. If you don't know the answer, just say that you don't know, don't try to make up an answer. Tailor your response as if speaking to {audience}. Provide your response in plain english.
 
 {context}
 <|eot_id|>
@@ -254,7 +254,7 @@ def cons_prompt():
       A prompt template with content as shown above in which audience and context are filled in at a later step.
   """
   prompt_template = (
-"""<|begin_of_text|><|start_header_id|>system<|end_header_id|>Start with a one sentence synopsis of the following context. Describe the ramifications of ignoring an attack as outlined in the context. Be specific about how these ramifications come about. Tailor your response as if speaking to {audience}.
+"""<|begin_of_text|><|start_header_id|>system<|end_header_id|>Start with a one sentence synopsis of the following context provided in json format. Describe the ramifications of ignoring an attack as outlined in the context. Be specific about how these ramifications come about. Tailor your response as if speaking to {audience}. Provide your response in plain english.
 
 {context}<|eot_id|>
 <|start_header_id|>assistant<|end_header_id|>"""
@@ -282,7 +282,7 @@ def sc_prompt():
       A prompt template with content as shown above in which audience and context are filled in at a later step.
   """
   prompt_template = (
-"""<|begin_of_text|><|start_header_id|>system<|end_header_id|>Use the following pieces of context to create a realistic and descriptive narrative of this attack occuring. Be specific in who the attacker is and what they are doing. Tailor your response as if speaking to {audience}.
+"""<|begin_of_text|><|start_header_id|>system<|end_header_id|>Use the following pieces of context provided in json format to create a realistic and descriptive narrative of this attack occuring. Be specific in who the attacker is and what they are doing. Tailor your response as if speaking to {audience}. Provide your response in plain english.
 
 {context}<|eot_id|>
 <|start_header_id|>assistant<|end_header_id|>"""
@@ -309,7 +309,23 @@ def get_llm_response(output):
 """
 RETRIEVER
 """
-def create_retriever():
+def create_multi_retriever():
+  retriever = (
+    {
+      "title": create_retriever("title"),
+      "description": create_retriever("description"),
+      "context": create_retriever()
+    }
+    | RunnableLambda(combine_context)
+    | RunnableLambda(format_docs)
+    | RunnableLambda(let_me_see)
+  )
+
+  return retriever
+
+
+
+def create_retriever(context_type = ""):
   """
   Creates the document retriever. Documents can be filtered by metadata. Documents are represented by vectors, and the vectors that are the closest match to the question asked to the RAG are retrieved.
       
@@ -322,15 +338,24 @@ def create_retriever():
 
   retriever = (
     SelfQueryRetriever(
-    query_constructor = structured_request_chain(),
-    vectorstore = db,
-    structured_query_translator = translator
+      query_constructor = structured_request_chain(context_type),
+      vectorstore = db,
+      structured_query_translator = translator
     )
-    | RunnableLambda(format_docs)
-    | RunnableLambda(let_me_see)
   )
   
   return retriever
+
+
+
+def combine_context(retrievers):
+  context = []
+  for retriever in retrievers.keys():
+    for doc in retrievers.get(retriever):
+      if doc not in context:
+        context.append(doc)
+
+  return context
 
 
 
@@ -408,7 +433,7 @@ def db_embeddings():
   
 
 # STRUCTURED REQUEST
-def structured_request_chain():
+def structured_request_chain(context_type):
   """
   When invoked, turns a question into a JSON structured request.
   
@@ -425,9 +450,14 @@ def structured_request_chain():
   output_parser = StructuredQueryOutputParser.from_components() # the llm will return a String that looks like JSON - this will identify the query and the filter from the String
   
   structured_request_chain = (
-    RunnableLambda(cve_id) 
-    | RunnableLambda(create_filter) 
-    | RunnableLambda(structured_request) 
+    {
+      "context_type": lambda x: context_type,
+      "filter": (
+        RunnableLambda(cve_id) 
+        | RunnableLambda(create_filter)
+      )
+    }
+    | RunnableLambda(structured_request)
     | output_parser # and the JSON string is parsed to determine the query and filter
   )
   
@@ -456,11 +486,11 @@ def create_filter(list_of_matches):
 
 
 
-def structured_request(filters):
+def structured_request(dict):
   return (
 f"""{{
-  "query": "",
-  "filter": "{filters}"
+  "query": "{dict.get("context_type")}",
+  "filter": "{dict.get("filter")}"
 }}"""
   )
   
